@@ -9,7 +9,7 @@
 
 ## Стек
 
-- C# 12 / .NET 9, ASP.NET Core Minimal API, EF Core, SQLite (dev) / PostgreSQL (prod)
+- C# 12 / .NET 8, ASP.NET Core Minimal API, EF Core, SQLite (dev) / PostgreSQL (prod)
 - Python 3.11+, aiogram 3, httpx, pydantic v2
 - Зовнішні API: TMDB (фільми, серіали), RAWG (ігри)
 
