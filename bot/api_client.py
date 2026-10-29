@@ -1,10 +1,18 @@
 import httpx
 import asyncio
 from pydantic import BaseModel
+from typing import List, Optional
+from pydantic import BaseModel
 
 class MediaCreate(BaseModel):
     title: str
     author: str
+
+class MediaItem(BaseModel):
+    id: int
+    title: str
+    type: str  # наприклад, "movie" або "game"
+    year: Optional[int] = None  # Рік може бути, а може й не бути
 
 # === API КЛІЄНТ ===
 class MediaLibraryClient:
@@ -22,6 +30,27 @@ class MediaLibraryClient:
             except httpx.RequestError as e:
                 return f"Сервер ще не працює або недоступний: {e}"
 
+    async def get_media_list(self) -> List[MediaItem]:
+        """Отримує список медіа з сервера"""
+        url = f"{self.base_url}/api/media"
+        # httpx.AsyncClient створює сесію для запиту
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url)
+                response.raise_for_status() # Перевіряє на помилки (404, 500)
+                
+                data = response.json() # Отримуємо список словників
+                
+                # Перетворюємо кожен словник у валідований об'єкт Pydantic
+                return [MediaItem.model_validate(item) for item in data]
+            
+            except httpx.RequestError as e:
+                print(f"Помилка з'єднання: {e}")
+                return []
+            except Exception as e:
+                print(f"Помилка обробки даних: {e}")
+                return []
+            
     async def create_media(self, media_data: MediaCreate):
         """Асинхронний POST-запит з використанням моделі Pydantic"""
         url = f"{self.base_url}/api/media"
@@ -36,7 +65,7 @@ class MediaLibraryClient:
             except httpx.RequestError as e:
                 print(f"Помилка з'єднання: {e}")
                 return None
-
+  
 async def main():
     api = MediaLibraryClient()
     print(await api.test_connection())
