@@ -3,8 +3,9 @@ using MediaLibrary.Api.Models.Dtos;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Пошук за контрактом GET /api/search: спочатку локальна БД, потім зовнішні каталоги.
-/// Порядок фіксований — «БД → зовнішні», тому локальний запис завжди виграє дедуплікацію
+/// Пошук за контрактом GET /api/search: спочатку локальна БД, потім зовнішні каталоги,
+/// інакше — порожній список (бот далі пропонує створити запис вручну).
+/// Порядок фіксований — «БД → TMDB/RAWG», тому локальний запис завжди виграє дедуплікацію
 /// у свого ж зовнішнього близнюка.
 /// </summary>
 public class SearchAggregatorService
@@ -14,20 +15,23 @@ public class SearchAggregatorService
 
     private readonly MediaService _media;
     private readonly TmdbService _tmdb;
+    private readonly RawgService _rawg;
     private readonly ILogger<SearchAggregatorService> _logger;
 
     public SearchAggregatorService(
         MediaService media,
         TmdbService tmdb,
+        RawgService rawg,
         ILogger<SearchAggregatorService> logger)
     {
         _media = media;
         _tmdb = tmdb;
+        _rawg = rawg;
         _logger = logger;
     }
 
     /// <summary>
-    /// type: null — усі джерела; movie/series — TMDB; game — поки лише локальна БД.
+    /// type: null — усі джерела; movie/series — TMDB; game — RAWG.
     /// Помилки зовнішніх API не валять запит — вони лише зменшують результат.
     /// </summary>
     public async Task<List<SearchResultDto>> SearchAsync(string query, string? type)
@@ -49,6 +53,10 @@ public class SearchAggregatorService
 
         if (typeFilter is null or "series")
             AddUnique(results, await SafeCall(() => _tmdb.SearchSeriesAsync(search), "TMDB series"));
+
+        // 3. RAWG: ігри для game/без типу.
+        if (typeFilter is null or "game")
+            AddUnique(results, await SafeCall(() => _rawg.SearchGamesAsync(search), "RAWG games"));
 
         return results;
     }

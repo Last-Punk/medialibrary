@@ -12,8 +12,9 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 
 builder.Services.AddScoped<MediaService>();
 
-// Зовнішні каталоги: HttpClient із DI, ключі — з конфігурації (Tmdb:ApiKey).
+// Зовнішні каталоги: HttpClient із DI, ключі — з конфігурації (Tmdb:ApiKey, Rawg:ApiKey).
 builder.Services.AddHttpClient<TmdbService>();
+builder.Services.AddHttpClient<RawgService>();
 builder.Services.AddScoped<SearchAggregatorService>();
 
 var app = builder.Build();
