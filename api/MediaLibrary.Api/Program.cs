@@ -26,7 +26,5 @@ app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.MapMediaEndpoints();
 app.MapSearchEndpoints();
-app.MapStatsEndpoints();
-app.MapGenreEndpoints();
 
 app.Run();
