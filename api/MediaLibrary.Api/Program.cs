@@ -24,5 +24,6 @@ app.UseSwaggerUI();
 app.MapMediaEndpoints();
 app.MapSearchEndpoints();
 app.MapStatsEndpoints();
+app.MapGenreEndpoints();
 
 app.Run();
