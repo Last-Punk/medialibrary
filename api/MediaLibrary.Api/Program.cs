@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MediaLibrary.Api.Data;
 using MediaLibrary.Api.Endpoints;
+using MediaLibrary.Api.Middleware;
 using MediaLibrary.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +21,8 @@ builder.Services.AddScoped<SearchAggregatorService>();
 var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
+
+app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.MapMediaEndpoints();
 app.MapSearchEndpoints();
