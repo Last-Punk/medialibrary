@@ -18,6 +18,8 @@ public static class MediaEndpoints
         group.MapPost("", Create);
         group.MapPut("/{id:int}", Update);
         group.MapDelete("/{id:int}", Delete);
+        group.MapGet("/{id:int}/sessions", GetSessions);
+        group.MapPost("/{id:int}/sessions", AddSession);
 
         return app;
     }
@@ -80,6 +82,27 @@ public static class MediaEndpoints
             return Results.NotFound(Error("Media not found", "MEDIA_NOT_FOUND"));
 
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> GetSessions(int id, MediaService service)
+    {
+        var sessions = await service.GetSessionsAsync(id);
+        if (sessions is null)
+            return Results.NotFound(Error("Media not found", "MEDIA_NOT_FOUND"));
+
+        return Results.Ok(new { sessions });
+    }
+
+    private static async Task<IResult> AddSession(
+        int id,
+        CreateViewingSessionDto dto,
+        MediaService service)
+    {
+        var session = await service.AddSessionAsync(id, dto);
+        if (session is null)
+            return Results.NotFound(Error("Media not found", "MEDIA_NOT_FOUND"));
+
+        return Results.Created($"/api/media/{id}/sessions/{session.Id}", session);
     }
 
     private static object Error(string message, string code) => new

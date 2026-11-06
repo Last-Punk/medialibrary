@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using MediaLibrary.Api.Data;
 using MediaLibrary.Api.Models.Dtos;
@@ -96,6 +97,8 @@ public class MediaService
 
     public async Task<MediaResponseDto> CreateAsync(CreateMediaDto dto)
     {
+        ValidateDto(dto);
+
         var title = (dto.Title ?? string.Empty).Trim();
         if (title.Length == 0)
             throw new ArgumentException("Title is required");
@@ -133,6 +136,8 @@ public class MediaService
 
     public async Task<MediaResponseDto?> UpdateAsync(int id, UpdateMediaDto dto)
     {
+        ValidateDto(dto);
+
         var item = await _db.MediaItems
             .Include(m => m.Genres)
             .Include(m => m.Tags)
@@ -210,6 +215,8 @@ public class MediaService
 
     public async Task<MediaResponseDto> ImportFromExternalAsync(ImportMediaDto dto)
     {
+        ValidateDto(dto);
+
         var externalId = (dto.ExternalId ?? string.Empty).Trim();
         var externalSource = (dto.ExternalSource ?? string.Empty).Trim();
         var title = (dto.Title ?? string.Empty).Trim();
@@ -261,6 +268,61 @@ public class MediaService
         await _db.SaveChangesAsync();
 
         return ToDto(item);
+    }
+
+    public async Task<List<ViewingSessionDto>?> GetSessionsAsync(int mediaId)
+    {
+        var mediaExists = await _db.MediaItems
+            .AsNoTracking()
+            .AnyAsync(item => item.Id == mediaId);
+
+        if (!mediaExists)
+            return null;
+
+        var sessions = await _db.ViewingSessions
+            .AsNoTracking()
+            .Where(session => session.MediaItemId == mediaId)
+            .OrderByDescending(session => session.Date)
+            .ThenByDescending(session => session.Id)
+            .ToListAsync();
+
+        return sessions.Select(ToDto).ToList();
+    }
+
+    public async Task<ViewingSessionDto?> AddSessionAsync(int mediaId, CreateViewingSessionDto dto)
+    {
+        var mediaExists = await _db.MediaItems
+            .AsNoTracking()
+            .AnyAsync(item => item.Id == mediaId);
+
+        if (!mediaExists)
+            return null;
+
+        var session = new ViewingSession
+        {
+            MediaItemId = mediaId,
+            Date = dto.Date.HasValue ? AsUtc(dto.Date.Value) : DateTime.UtcNow,
+            Note = TrimOrNull(dto.Note),
+            Progress = TrimOrNull(dto.Progress)
+        };
+
+        _db.ViewingSessions.Add(session);
+        await _db.SaveChangesAsync();
+
+        return ToDto(session);
+    }
+
+    private static ViewingSessionDto ToDto(ViewingSession session)
+    {
+        return new ViewingSessionDto
+        {
+            Id = session.Id,
+            MediaItemId = session.MediaItemId,
+            // SpecifyKind гарантує суфікс Z у JSON навіть після читання дати з SQLite.
+            Date = AsUtc(session.Date),
+            Note = session.Note,
+            Progress = session.Progress
+        };
     }
 
     private static MediaResponseDto ToDto(MediaItem item)
@@ -379,6 +441,18 @@ public class MediaService
 
         throw new ArgumentException(
             $"Invalid media status: '{value}'. Allowed: plan, watching, completed, dropped");
+    }
+
+    private static void ValidateDto<T>(T dto) where T : class
+    {
+        // Minimal APIs у .NET 9 самі не виконують DataAnnotations, тому запускаємо їх явно.
+        var results = new List<ValidationResult>();
+        var context = new ValidationContext(dto);
+
+        if (!Validator.TryValidateObject(dto, context, results, validateAllProperties: true))
+        {
+            throw new ArgumentException(results[0].ErrorMessage ?? "Validation failed");
+        }
     }
 
     private static void ValidateRating(int? rating)
