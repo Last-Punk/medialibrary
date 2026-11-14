@@ -1,35 +1,45 @@
 import asyncio
-import os
+
 import logging
+import os
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
 
 
 from api_client import MediaLibraryClient
-from handlers import router
 
+
+
+from menu import router as menu_router
+from media import router as media_router
+from create_search import router as create_search_router
 
 load_dotenv()
-TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    
-    bot = Bot(token=TOKEN)
+
+    if not BOT_TOKEN:
+        print(" Помилка: Токен бота не знайдено! Перевір файл .env")
+        return
+
+    bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
-    
 
-    api = MediaLibraryClient()
-    dp["api"] = api
+    api = MediaLibraryClient("http://localhost:5021")
 
+    # Реєструємо роутери
+    dp.include_router(menu_router)
+    dp.include_router(media_router)
+    dp.include_router(create_search_router)
 
-    dp.include_router(router)
+    print(" Бот успішно запущений і готовий до роботи!")
 
-    try:
-        print("Бот запущений! Натисни Ctrl+C для зупинки.")
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+    await dp.start_polling(bot, api=api)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n Бота зупинено (Ctrl+C).")
