@@ -8,8 +8,20 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddDbContext<AppDbContext>(opt =>
-    opt.UseSqlite(builder.Configuration.GetConnectionString("Default")));
+// Провайдер БД обирається середовищем: PostgreSQL у Production, SQLite у Development.
+// Рядок підключення в обох випадках конфігураційний — ConnectionStrings:Default
+// (у Production його задає змінна середовища ConnectionStrings__Default).
+var connectionString = builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("Connection string 'Default' is not configured.");
+
+if (builder.Environment.IsProduction())
+{
+    builder.Services.AddDbContext<AppDbContext>(opt => opt.UseNpgsql(connectionString));
+}
+else
+{
+    builder.Services.AddDbContext<AppDbContext>(opt => opt.UseSqlite(connectionString));
+}
 
 builder.Services.AddScoped<MediaService>();
 
