@@ -37,11 +37,13 @@ dotnet run --urls http://localhost:5000
 
 Рядок підключення development середовища — `ConnectionStrings:Default` у `appsettings.Development.json` (`Data Source=medialibrary.db`).
 
-Запуск тестів:
+Збірка й запуск тестів усього рішення (з кореня `api/`, де лежить `MediaLibrary.sln`):
 
 ```bash
 cd api
-dotnet test MediaLibrary.Api.Tests
+dotnet restore
+dotnet build
+dotnet test
 ```
 
 ## Конфігурація
