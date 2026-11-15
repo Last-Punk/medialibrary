@@ -1,6 +1,6 @@
-using MediaLibrary.Api.Data;
+using MediaLibrary.Core.Data;
 using MediaLibrary.Api.Models.Dtos;
-using MediaLibrary.Api.Models.Entities;
+using MediaLibrary.Core.Models.Entities;
 using MediaLibrary.Api.Services;
 using Microsoft.EntityFrameworkCore;
 

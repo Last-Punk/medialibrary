@@ -3,9 +3,9 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using MediaLibrary.Api.Data;
+using MediaLibrary.Core.Data;
 using MediaLibrary.Api.Endpoints;
-using MediaLibrary.Api.Models.Entities;
+using MediaLibrary.Core.Models.Entities;
 
 namespace MediaLibrary.Api.Tests;
 

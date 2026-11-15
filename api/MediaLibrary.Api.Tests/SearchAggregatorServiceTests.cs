@@ -3,8 +3,8 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
-using MediaLibrary.Api.Data;
-using MediaLibrary.Api.Models.Entities;
+using MediaLibrary.Core.Data;
+using MediaLibrary.Core.Models.Entities;
 using MediaLibrary.Api.Services;
 
 namespace MediaLibrary.Api.Tests;

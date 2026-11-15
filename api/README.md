@@ -20,11 +20,13 @@ REST API особистої медіатеки (фільми, серіали, і
 cd api/MediaLibrary.Api
 dotnet restore
 
-# Первинне створення схеми БД (SQLite-файл medialibrary.db створюється в робочому каталозі):
-dotnet ef migrations add InitialCreate   # один раз, якщо папки Migrations ще немає
-dotnet ef database update
-
+# Схема БД застосовується автоматично на старті застосунку (Database.Migrate):
+# для Development береться набір міграцій з проєкту MediaLibrary.Migrations.Sqlite.
 dotnet run
+
+# Лише коли модель змінилася — нова міграція чи ручне оновлення локальної БД:
+dotnet ef migrations add <MigrationName> --project ../MediaLibrary.Migrations.Sqlite --startup-project .
+dotnet ef database update --project ../MediaLibrary.Migrations.Sqlite --startup-project .
 ```
 
 Дев-profіль (`Properties/launchSettings.json`, `ASPNETCORE_ENVIRONMENT=Development`) слухає `http://localhost:5021`. Для повної відповідності контракту (base URL `http://localhost:5000`):
@@ -67,15 +69,20 @@ dotnet test MediaLibrary.Api.Tests
 ## Архітектура
 
 ```
-Endpoints/          HTTP-шар: мінімальні ендпоінти, мапіння IResult, try/catch → { error, code }
-  └─ Services/      Бізнес-логіка: MediaService (CRUD, сесії, імпорт, валідація),
-                    TmdbService/RawgService (HTTP-клієнти зовнішніх каталогів),
-                    SearchAggregatorService (конвейер «БД → TMDB → RAWG»)
-        └─ Data/    AppDbContext (EF Core): MediaItems, Genres, Tags, ViewingSessions
+MediaLibrary.Api/                 HTTP-шар і бізнес-логіка
+  Endpoints/                      мінімальні ендпоінти, мапінг IResult, try/catch → { error, code }
+  Services/                       MediaService (CRUD, сесії, імпорт, валідація),
+                                  TmdbService/RawgService (HTTP-клієнти TMDB/RAWG),
+                                  SearchAggregatorService (конвейер «БД → TMDB → RAWG»)
+MediaLibrary.Core/                доменна модель (Entities) + AppDbContext:
+                                  MediaItems, Genres, Tags, ViewingSessions
+MediaLibrary.Migrations.Sqlite/   EF-міграції під SQLite (Development)
+MediaLibrary.Migrations.Postgres/ EF-міграції під PostgreSQL (Production)
 ```
 
 - **Middleware-конвеєр:** `ErrorHandlingMiddleware` йде першим після Swagger — підхоплює винятки без власного обробника й гарантує єдиний формат `{ error, code }`.
 - **DI:** `MediaService`/`SearchAggregatorService` — scoped; `TmdbService`/`RawgService` — типізовані `HttpClient` (`AddHttpClient`).
+- **Міграції:** міграції згенеровані окремо під кожен провайдер (в окремих збірках, щоб уникнути циклічних посилань і конфліктів наборів — через `MigrationsAssembly` у реєстрації `DbContext`); на старті застосунок виконує `Database.Migrate()`, тож схема цільової БД завжди відповідає моделі.
 - **Модель даних:** `MediaItem` ↔ `Genre`/`Tag` — many-to-many (join-таблиці `MediaItemGenre`, `MediaItemTag`); `MediaItem` → `ViewingSession` — one-to-many із каскадним видаленням.
 - **Дедуплікація пошуку:** за парою `ExternalSource + ExternalId` (без урахування регістру); локальний запис має пріоритет над зовнішнім близнюком.
 
@@ -174,12 +181,20 @@ Production-збірка використовує PostgreSQL; провайдер 
 Корінь `api/` містить `Dockerfile` (multi-stage, SDK 9.0 → ASP.NET 9.0 runtime, порт 8080):
 
 ```bash
-cd api/MediaLibrary.Api
-docker build -f ../Dockerfile -t medialibrary-api .
+cd api
+docker build -f Dockerfile -t medialibrary-api .
 docker run -p 8080:8080 \
   -e ASPNETCORE_ENVIRONMENT=Production \
   -e ConnectionStrings__Default="Host=<host>;Database=medialibrary;Username=<user>;Password=<password>" \
   medialibrary-api
 ```
 
-Для хостингу на Render або аналогічному PaaS: тип сервісу — Web Service (Docker), порт контейнера 8080, змінні середовища — `ASPNETCORE_ENVIRONMENT`, `ConnectionStrings__Default`, за потреби `Tmdb__ApiKey`/`Rawg__ApiKey`. Міграції на цільовій БД застосовуються `dotnet ef database update` (з відповідним `ASPNETCORE_ENVIRONMENT`) перед викладом нової версії.
+> Контекст збірки — каталог `api/` (Dockerfile збирає кілька проєктів: Api, Core, обидві збірки міграцій).
+
+Для хостингу на Render або аналогічному PaaS: тип сервісу — Web Service (Docker), порт контейнера 8080, змінні середовища — `ASPNETCORE_ENVIRONMENT`, `ConnectionStrings__Default`, за потреби `Tmdb__ApiKey`/`Rawg__ApiKey`. Схему PostgreSQL контейнер застосовує сам на старті (`Database.Migrate()`, збірка `MediaLibrary.Migrations.Postgres`) — окремий крок розгортання БД не потрібен. За бажання схему можна оновити й вручну:
+
+```bash
+ASPNETCORE_ENVIRONMENT=Production \
+ConnectionStrings__Default="Host=<host>;Database=medialibrary;Username=<user>;Password=<password>" \
+dotnet ef database update --project MediaLibrary.Migrations.Postgres --startup-project MediaLibrary.Api
+```
