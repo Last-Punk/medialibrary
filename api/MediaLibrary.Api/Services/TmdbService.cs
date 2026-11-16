@@ -16,7 +16,9 @@ public class TmdbService
     public const string Source = "TMDB";
 
     private const string DefaultBaseUrl = "https://api.themoviedb.org/3/";
-    private const string DefaultImageBaseUrl = "https://image.tmdb.org/t/p/w500";
+    // EnsureTrailingSlash повертає fallback як є — тому слеш у кінці тут обов'язковий,
+    // інакше за відсутності конфігурації постер склеїться без "/" ("/t/p/w500" + "p1.jpg").
+    private const string DefaultImageBaseUrl = "https://image.tmdb.org/t/p/w500/";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

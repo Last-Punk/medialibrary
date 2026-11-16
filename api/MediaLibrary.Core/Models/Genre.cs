@@ -1,4 +1,4 @@
-namespace MediaLibrary.Api.Models.Entities;
+namespace MediaLibrary.Core.Models.Entities;
 
 public class Genre
 {

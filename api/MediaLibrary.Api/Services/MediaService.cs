@@ -1,8 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
-using MediaLibrary.Api.Data;
+using MediaLibrary.Core.Data;
 using MediaLibrary.Api.Models.Dtos;
-using MediaLibrary.Api.Models.Entities;
+using MediaLibrary.Core.Models.Entities;
 
 namespace MediaLibrary.Api.Services;
 
