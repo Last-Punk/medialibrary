@@ -55,16 +55,37 @@ builder.Services.AddOptions<TelegramOptions>()
         "Telegram:BotToken is required in Production.")
     .ValidateOnStart();
 
+builder.Services.AddOptions<BotAuthOptions>()
+    .BindConfiguration(BotAuthOptions.SectionName)
+    .Validate(
+        options => string.IsNullOrWhiteSpace(options.ApiKey)
+            || Encoding.UTF8.GetByteCount(options.ApiKey) >= 32,
+        "BotAuth:ApiKey must contain at least 32 UTF-8 bytes when configured.")
+    .Validate(
+        options => !builder.Environment.IsProduction() || !string.IsNullOrWhiteSpace(options.ApiKey),
+        "BotAuth:ApiKey is required in Production.")
+    .Validate(
+        options => string.IsNullOrWhiteSpace(options.ApiKey)
+            || !string.Equals(options.ApiKey, jwtOptions.Secret, StringComparison.Ordinal),
+        "BotAuth:ApiKey must be distinct from Jwt:Secret.")
+    .ValidateOnStart();
+
 builder.Services.AddOptions<RateLimitingOptions>()
     .BindConfiguration(RateLimitingOptions.SectionName)
     .Validate(
-        options => options.GlobalPermitLimit > 0 && options.AuthPermitLimit > 0,
+        options => options.GlobalPermitLimit > 0
+            && options.AuthPermitLimit > 0
+            && options.BotAuthPermitLimit > 0,
         "Rate limiting permit limits must be positive.")
     .Validate(
-        options => options.GlobalWindowSeconds > 0 && options.AuthWindowSeconds > 0,
+        options => options.GlobalWindowSeconds > 0
+            && options.AuthWindowSeconds > 0
+            && options.BotAuthWindowSeconds > 0,
         "Rate limiting windows must be positive.")
     .Validate(
-        options => options.GlobalQueueLimit >= 0 && options.AuthQueueLimit >= 0,
+        options => options.GlobalQueueLimit >= 0
+            && options.AuthQueueLimit >= 0
+            && options.BotAuthQueueLimit >= 0,
         "Rate limiting queue limits cannot be negative.")
     .ValidateOnStart();
 
@@ -152,6 +173,18 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = rateLimitingOptions.AuthQueueLimit,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst
             }));
+
+    options.AddPolicy("bot-auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            RateLimitPartitionKeys.Ip(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = rateLimitingOptions.BotAuthPermitLimit,
+                Window = TimeSpan.FromSeconds(rateLimitingOptions.BotAuthWindowSeconds),
+                QueueLimit = rateLimitingOptions.BotAuthQueueLimit,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
 });
 
 // Провайдер БД обирається середовищем: PostgreSQL у Production, SQLite у Development.
@@ -195,6 +228,7 @@ using (var scope = app.Services.CreateScope())
     // Fail before touching the database if security-critical configuration is invalid.
     _ = scope.ServiceProvider.GetRequiredService<IOptions<JwtOptions>>().Value;
     _ = scope.ServiceProvider.GetRequiredService<IOptions<TelegramOptions>>().Value;
+    _ = scope.ServiceProvider.GetRequiredService<IOptions<BotAuthOptions>>().Value;
     _ = scope.ServiceProvider.GetRequiredService<IOptions<RateLimitingOptions>>().Value;
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
 }
