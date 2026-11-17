@@ -188,11 +188,17 @@ public sealed class AuthService
         var secretKey = HMACSHA256.HashData(Encoding.UTF8.GetBytes(TelegramWebAppDataKey), botToken);
         var expectedHash = HMACSHA256.HashData(secretKey, Encoding.UTF8.GetBytes(dataCheckString));
 
-        Span<byte> suppliedHashBytes = stackalloc byte[expectedHash.Length];
-        if (!Convert.TryFromHexString(suppliedHash, suppliedHashBytes, out var bytesWritten))
+        byte[] suppliedHashBytes;
+        try
+        {
+            suppliedHashBytes = Convert.FromHexString(suppliedHash);
+        }
+        catch (FormatException)
+        {
             return false;
+        }
 
-        return CryptographicOperations.FixedTimeEquals(expectedHash, suppliedHashBytes[..bytesWritten]);
+        return CryptographicOperations.FixedTimeEquals(expectedHash, suppliedHashBytes);
     }
 
     private static bool TryParseTelegramUser(string userJson, out TelegramIdentity telegramUser)
