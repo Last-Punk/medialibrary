@@ -11,7 +11,7 @@ namespace MediaLibrary.Api.Tests;
 
 /// <summary>
 /// ErrorHandlingMiddleware: мапіння винятків на контрактні помилки { error, code } —
-/// DuplicateException → 409 MEDIA_DUPLICATE, ArgumentException → 400 VALIDATION_ERROR,
+/// DuplicateException → 409 MEDIA_DUPLICATE, bad HTTP requests and ArgumentException → 400 VALIDATION_ERROR,
 /// будь-що інше → 500 INTERNAL_ERROR (із логуванням). Вже розпочату відповідь
 /// middleware не перезаписує.
 /// </summary>
@@ -41,6 +41,19 @@ public class ErrorHandlingMiddlewareTests
 
         var json = JsonDocument.Parse(body).RootElement;
         Assert.Equal("Rating must be between 1 and 10", json.GetProperty("error").GetString());
+        Assert.Equal("VALIDATION_ERROR", json.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task BadHttpRequestException_ReturnsBadRequest_WithValidationErrorCode()
+    {
+        var (status, body, _) = await RunAsync(
+            _ => throw new BadHttpRequestException("Invalid query value"));
+
+        Assert.Equal(StatusCodes.Status400BadRequest, status);
+
+        var json = JsonDocument.Parse(body).RootElement;
+        Assert.Equal("Invalid query value", json.GetProperty("error").GetString());
         Assert.Equal("VALIDATION_ERROR", json.GetProperty("code").GetString());
     }
 

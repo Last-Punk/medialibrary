@@ -25,6 +25,8 @@ public sealed class MediaServiceOwnerIsolationTests
         var result = await Service(db, AliceId).GetFilteredAsync(new MediaFilter());
 
         Assert.Equal(1, result.Total);
+        Assert.Equal(0, result.Offset);
+        Assert.Equal(20, result.Limit);
         Assert.Collection(result.Items, item => Assert.Equal(alice.Id, item.Id));
     }
 
