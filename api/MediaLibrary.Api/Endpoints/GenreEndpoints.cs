@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MediaLibrary.Api.Security;
 using MediaLibrary.Core.Data;
 
 namespace MediaLibrary.Api.Endpoints;
@@ -10,7 +11,9 @@ public static class GenreEndpoints
 {
     public static IEndpointRouteBuilder MapGenreEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/genres").WithTags("Genres");
+        var group = app.MapGroup("/api/genres")
+            .WithTags("Genres")
+            .RequireAuthorization();
 
         // Порожній шаблон зберігає точний контрактний шлях /api/genres без слеша в кінці.
         group.MapGet("", GetAll);
@@ -18,10 +21,12 @@ public static class GenreEndpoints
         return app;
     }
 
-    private static async Task<IResult> GetAll(AppDbContext db)
+    private static async Task<IResult> GetAll(AppDbContext db, ICurrentUser currentUser)
     {
+        var ownerId = currentUser.UserId;
         var genres = await db.Genres
             .AsNoTracking()
+            .Where(genre => genre.MediaItems.Any(item => item.OwnerId == ownerId))
             .OrderBy(genre => genre.Name)
             .Select(genre => new
             {

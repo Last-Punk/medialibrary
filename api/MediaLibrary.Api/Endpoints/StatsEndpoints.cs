@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MediaLibrary.Api.Security;
 using MediaLibrary.Core.Data;
 
 namespace MediaLibrary.Api.Endpoints;
@@ -11,16 +12,21 @@ public static class StatsEndpoints
 {
     public static IEndpointRouteBuilder MapStatsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/stats").WithTags("Stats");
+        var group = app.MapGroup("/api/stats")
+            .WithTags("Stats")
+            .RequireAuthorization();
 
         group.MapGet("", GetStats);
 
         return app;
     }
 
-    private static async Task<IResult> GetStats(AppDbContext db)
+    private static async Task<IResult> GetStats(AppDbContext db, ICurrentUser currentUser)
     {
-        var media = db.MediaItems.AsNoTracking();
+        var ownerId = currentUser.UserId;
+        var media = db.MediaItems
+            .AsNoTracking()
+            .Where(item => item.OwnerId == ownerId);
 
         var total = await media.CountAsync();
 
@@ -57,10 +63,11 @@ public static class StatsEndpoints
 
         var topGenres = await db.Genres
             .AsNoTracking()
+            .Where(genre => genre.MediaItems.Any(item => item.OwnerId == ownerId))
             .Select(genre => new
             {
                 name = genre.Name,
-                count = genre.MediaItems.Count()
+                count = genre.MediaItems.Count(item => item.OwnerId == ownerId)
             })
             .OrderByDescending(genre => genre.count)
             .ThenBy(genre => genre.name)

@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using MediaLibrary.Core.Data;
 using MediaLibrary.Api.Models.Dtos;
+using MediaLibrary.Api.Security;
 using MediaLibrary.Core.Models.Entities;
 
 namespace MediaLibrary.Api.Services;
@@ -21,15 +22,19 @@ public class DuplicateException : Exception
 public class MediaService
 {
     private readonly AppDbContext _db;
+    private readonly ICurrentUser _currentUser;
 
-    public MediaService(AppDbContext db)
+    public MediaService(AppDbContext db, ICurrentUser currentUser)
     {
         _db = db;
+        _currentUser = currentUser;
     }
 
     public async Task<PagedResult<MediaResponseDto>> GetFilteredAsync(MediaFilter filter)
     {
+        var ownerId = _currentUser.UserId;
         var query = _db.MediaItems
+            .Where(m => m.OwnerId == ownerId)
             .Include(m => m.Genres)
             .Include(m => m.Tags)
             .AsQueryable();
@@ -87,7 +92,9 @@ public class MediaService
 
     public async Task<MediaResponseDto?> GetByIdAsync(int id)
     {
+        var ownerId = _currentUser.UserId;
         var item = await _db.MediaItems
+            .Where(m => m.OwnerId == ownerId)
             .Include(m => m.Genres)
             .Include(m => m.Tags)
             .FirstOrDefaultAsync(m => m.Id == id);
@@ -110,6 +117,7 @@ public class MediaService
 
         var item = new MediaItem
         {
+            OwnerId = _currentUser.UserId,
             Title = title,
             OriginalTitle = TrimOrDefault(dto.OriginalTitle, title),
             Year = dto.Year,
@@ -138,7 +146,9 @@ public class MediaService
     {
         ValidateDto(dto);
 
+        var ownerId = _currentUser.UserId;
         var item = await _db.MediaItems
+            .Where(m => m.OwnerId == ownerId)
             .Include(m => m.Genres)
             .Include(m => m.Tags)
             .FirstOrDefaultAsync(m => m.Id == id);
@@ -203,7 +213,9 @@ public class MediaService
 
     public async Task<bool> DeleteAsync(int id)
     {
-        var item = await _db.MediaItems.FindAsync(id);
+        var ownerId = _currentUser.UserId;
+        var item = await _db.MediaItems
+            .FirstOrDefaultAsync(media => media.Id == id && media.OwnerId == ownerId);
         if (item is null)
             return false;
 
@@ -233,9 +245,11 @@ public class MediaService
         if (string.IsNullOrWhiteSpace(dto.Type))
             throw new ArgumentException("Type is required");
 
+        var ownerId = _currentUser.UserId;
         var sourceLower = externalSource.ToLower();
         var exists = await _db.MediaItems.AnyAsync(m =>
-            m.ExternalId == externalId
+            m.OwnerId == ownerId
+            && m.ExternalId == externalId
             && m.ExternalSource != null
             && m.ExternalSource.ToLower() == sourceLower);
 
@@ -246,6 +260,7 @@ public class MediaService
         // тут приймаємо лише ті, що клієнт передав у запиті.
         var item = new MediaItem
         {
+            OwnerId = ownerId,
             Title = title,
             OriginalTitle = TrimOrDefault(dto.OriginalTitle, title),
             Year = dto.Year,
@@ -274,7 +289,7 @@ public class MediaService
     {
         var mediaExists = await _db.MediaItems
             .AsNoTracking()
-            .AnyAsync(item => item.Id == mediaId);
+            .AnyAsync(item => item.Id == mediaId && item.OwnerId == _currentUser.UserId);
 
         if (!mediaExists)
             return null;
@@ -293,7 +308,7 @@ public class MediaService
     {
         var mediaExists = await _db.MediaItems
             .AsNoTracking()
-            .AnyAsync(item => item.Id == mediaId);
+            .AnyAsync(item => item.Id == mediaId && item.OwnerId == _currentUser.UserId);
 
         if (!mediaExists)
             return null;

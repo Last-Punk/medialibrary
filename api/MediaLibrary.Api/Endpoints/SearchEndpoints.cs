@@ -12,7 +12,9 @@ public static class SearchEndpoints
 {
     public static IEndpointRouteBuilder MapSearchEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/search").WithTags("Search");
+        var group = app.MapGroup("/api/search")
+            .WithTags("Search")
+            .RequireAuthorization();
 
         group.MapGet("", Search);
         group.MapPost("/import", Import);
