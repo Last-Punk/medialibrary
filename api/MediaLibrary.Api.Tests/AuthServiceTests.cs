@@ -51,7 +51,9 @@ public sealed class AuthServiceTests
                 ValidIssuer = Issuer,
                 ValidateAudience = true,
                 ValidAudience = Audience,
-                ValidateLifetime = true,
+                // The service uses FrozenTimeProvider; validate the encoded expiry below instead
+                // of comparing this fixed 2026 test timestamp to the machine clock.
+                ValidateLifetime = false,
                 ClockSkew = TimeSpan.Zero,
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtSecret))
@@ -60,7 +62,9 @@ public sealed class AuthServiceTests
 
         Assert.Equal(result.User.Id.ToString(CultureInfo.InvariantCulture), principal.FindFirst("sub")?.Value);
         Assert.Equal("73421", principal.FindFirst("tid")?.Value);
-        Assert.Equal(Now.AddHours(6).UtcDateTime, ((JwtSecurityToken)validatedToken).ValidTo);
+        var jwt = (JwtSecurityToken)validatedToken;
+        Assert.Equal(Now.UtcDateTime, jwt.ValidFrom);
+        Assert.Equal(Now.AddHours(6).UtcDateTime, jwt.ValidTo);
     }
 
     [Fact]
