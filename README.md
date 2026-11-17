@@ -21,3 +21,4 @@
 ## Документація
 
 - [API Contract](./CONTRACT.md) — специфікація взаємодії між компонентами
+- [API Authentication](./api/AUTHENTICATION.md) — Telegram WebApp sign-in, Bearer JWT, owner isolation і rate limits
