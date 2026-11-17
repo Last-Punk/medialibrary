@@ -23,6 +23,7 @@ public sealed record TelegramAuthResult(string Token, User User);
 public sealed class AuthService
 {
     private const string TelegramWebAppDataKey = "WebAppData";
+    private const int MaximumInitDataLength = 16 * 1024;
     private static readonly TimeSpan MaximumFutureClockSkew = TimeSpan.FromMinutes(5);
 
     private readonly AppDbContext _db;
@@ -115,7 +116,7 @@ public sealed class AuthService
         out TelegramIdentity telegramUser)
     {
         telegramUser = default;
-        if (string.IsNullOrWhiteSpace(initData))
+        if (string.IsNullOrWhiteSpace(initData) || initData.Length > MaximumInitDataLength)
             return false;
 
         Dictionary<string, Microsoft.Extensions.Primitives.StringValues> fields;
