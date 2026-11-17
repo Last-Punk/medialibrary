@@ -7,6 +7,7 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    public DbSet<User> Users => Set<User>();
     public DbSet<MediaItem> MediaItems => Set<MediaItem>();
     public DbSet<Genre> Genres => Set<Genre>();
     public DbSet<Tag> Tags => Set<Tag>();
