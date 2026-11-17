@@ -98,6 +98,18 @@ public sealed class MediaServiceOwnerIsolationTests
     }
 
     [Fact]
+    public async Task UpdateAsync_ReturnsNotFoundBeforeValidatingForeignRecords()
+    {
+        using var db = CreateDb();
+        var bobItem = SeedMedia(db, BobId, "Bob's original");
+
+        var updated = await Service(db, AliceId).UpdateAsync(bobItem.Id, new UpdateMediaDto { Year = 1800 });
+
+        Assert.Null(updated);
+        Assert.Equal("Bob's original", (await db.MediaItems.SingleAsync()).Title);
+    }
+
+    [Fact]
     public async Task DeleteAsync_ReturnsFalseAndPreservesForeignRecord()
     {
         using var db = CreateDb();
