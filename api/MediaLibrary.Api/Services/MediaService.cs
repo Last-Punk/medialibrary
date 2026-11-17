@@ -144,8 +144,6 @@ public class MediaService
 
     public async Task<MediaResponseDto?> UpdateAsync(int id, UpdateMediaDto dto)
     {
-        ValidateDto(dto);
-
         var ownerId = _currentUser.UserId;
         var item = await _db.MediaItems
             .Where(m => m.OwnerId == ownerId)
@@ -155,6 +153,8 @@ public class MediaService
 
         if (item is null)
             return null;
+
+        ValidateDto(dto);
 
         // null у DTO = поле не передане, лишаємо без змін.
         if (dto.Title is not null)
