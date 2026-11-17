@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using MediaLibrary.Api.Models.Entities;
+using MediaLibrary.Core.Models.Entities;
 
-namespace MediaLibrary.Api.Data;
+namespace MediaLibrary.Core.Data;
 
 public class AppDbContext : DbContext
 {

@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using MediaLibrary.Api.Data;
+using MediaLibrary.Core.Data;
 
 namespace MediaLibrary.Api.Endpoints;
 

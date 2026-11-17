@@ -12,7 +12,14 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MediaLibrary.Core\MediaLibrary.Core.csproj" />
+    <ProjectReference Include="..\MediaLibrary.Migrations.Sqlite\MediaLibrary.Migrations.Sqlite.csproj" />
+    <ProjectReference Include="..\MediaLibrary.Migrations.Postgres\MediaLibrary.Migrations.Postgres.csproj" />
   </ItemGroup>
 
 </Project>
