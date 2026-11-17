@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using MediaLibrary.Api.Models.Dtos;
 using MediaLibrary.Api.Services;
 
@@ -12,6 +13,7 @@ public static class AuthEndpoints
         var group = app.MapGroup("/api/auth").WithTags("Auth");
         group.MapPost("/telegram", AuthenticateTelegram)
             .AllowAnonymous()
+            .RequireRateLimiting("telegram-auth")
             .WithName("AuthenticateTelegram");
 
         return app;

@@ -1,20 +1,40 @@
+using System.Globalization;
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using MediaLibrary.Api.Configuration;
+using MediaLibrary.Api.Documentation;
 using MediaLibrary.Api.Endpoints;
 using MediaLibrary.Api.Middleware;
+using MediaLibrary.Api.Security;
 using MediaLibrary.Api.Services;
 using MediaLibrary.Core.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        Description = "Paste the JWT returned by POST /api/auth/telegram."
+    });
+    options.OperationFilter<BearerSecurityOperationFilter>();
+});
 
 var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
 var jwtOptions = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
+var rateLimitingOptions = builder.Configuration.GetSection(RateLimitingOptions.SectionName)
+    .Get<RateLimitingOptions>() ?? new RateLimitingOptions();
 builder.Services.AddOptions<JwtOptions>()
     .Bind(jwtSection)
     .Validate(options => !string.IsNullOrWhiteSpace(options.Issuer), "Jwt:Issuer is required.")
@@ -33,6 +53,19 @@ builder.Services.AddOptions<TelegramOptions>()
     .Validate(
         options => !builder.Environment.IsProduction() || !string.IsNullOrWhiteSpace(options.BotToken),
         "Telegram:BotToken is required in Production.")
+    .ValidateOnStart();
+
+builder.Services.AddOptions<RateLimitingOptions>()
+    .BindConfiguration(RateLimitingOptions.SectionName)
+    .Validate(
+        options => options.GlobalPermitLimit > 0 && options.AuthPermitLimit > 0,
+        "Rate limiting permit limits must be positive.")
+    .Validate(
+        options => options.GlobalWindowSeconds > 0 && options.AuthWindowSeconds > 0,
+        "Rate limiting windows must be positive.")
+    .Validate(
+        options => options.GlobalQueueLimit >= 0 && options.AuthQueueLimit >= 0,
+        "Rate limiting queue limits cannot be negative.")
     .ValidateOnStart();
 
 var signingKey = string.IsNullOrWhiteSpace(jwtOptions.Secret)
@@ -58,6 +91,17 @@ builder.Services
         };
         options.Events = new JwtBearerEvents
         {
+            OnTokenValidated = context =>
+            {
+                var subject = context.Principal?.FindFirst("sub")?.Value;
+                if (!int.TryParse(subject, NumberStyles.None, CultureInfo.InvariantCulture, out var userId)
+                    || userId <= 0)
+                {
+                    context.Fail("The token does not contain a valid user subject.");
+                }
+
+                return Task.CompletedTask;
+            },
             OnChallenge = async context =>
             {
                 context.HandleResponse();
@@ -75,6 +119,40 @@ builder.Services
         };
     });
 builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new { error = "Too many requests", code = "RATE_LIMITED" },
+            cancellationToken);
+    };
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            RateLimitPartitionKeys.UserOrIp(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = rateLimitingOptions.GlobalPermitLimit,
+                Window = TimeSpan.FromSeconds(rateLimitingOptions.GlobalWindowSeconds),
+                QueueLimit = rateLimitingOptions.GlobalQueueLimit,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
+
+    options.AddPolicy("telegram-auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            RateLimitPartitionKeys.Ip(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = rateLimitingOptions.AuthPermitLimit,
+                Window = TimeSpan.FromSeconds(rateLimitingOptions.AuthWindowSeconds),
+                QueueLimit = rateLimitingOptions.AuthQueueLimit,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
+});
 
 // Провайдер БД обирається середовищем: PostgreSQL у Production, SQLite у Development.
 // Рядок підключення в обох випадках конфігураційний — ConnectionStrings:Default
@@ -97,6 +175,8 @@ else
             sqlite.MigrationsAssembly("MediaLibrary.Migrations.Sqlite")));
 }
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<MediaService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -115,6 +195,7 @@ using (var scope = app.Services.CreateScope())
     // Fail before touching the database if security-critical configuration is invalid.
     _ = scope.ServiceProvider.GetRequiredService<IOptions<JwtOptions>>().Value;
     _ = scope.ServiceProvider.GetRequiredService<IOptions<TelegramOptions>>().Value;
+    _ = scope.ServiceProvider.GetRequiredService<IOptions<RateLimitingOptions>>().Value;
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
 }
 
@@ -123,6 +204,7 @@ app.UseSwaggerUI();
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
