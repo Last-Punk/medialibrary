@@ -19,6 +19,7 @@ namespace MediaLibrary.Api.Tests;
 public sealed class AuthServiceTests
 {
     private const string BotToken = "123456:unit-test-telegram-bot-token";
+    private const string BotApiKey = "unit-test-bot-api-key-with-at-least-32-bytes";
     private const string JwtSecret = "test-only-signing-secret-with-more-than-32-bytes";
     private const string Issuer = "MediaLibrary.Tests";
     private const string Audience = "MediaLibrary.Tests.Client";
@@ -60,6 +61,85 @@ public sealed class AuthServiceTests
         Assert.Equal(result.User.Id.ToString(CultureInfo.InvariantCulture), principal.FindFirst("sub")?.Value);
         Assert.Equal("73421", principal.FindFirst("tid")?.Value);
         Assert.Equal(Now.AddHours(6).UtcDateTime, ((JwtSecurityToken)validatedToken).ValidTo);
+    }
+
+    [Fact]
+    public async Task AuthenticateBotAsync_UsesSharedTelegramUserAndIssuesUserJwt()
+    {
+        using var db = CreateDb();
+        var service = CreateService(db, Now);
+
+        var botLogin = await service.AuthenticateBotAsync(BotApiKey, telegramUserId: 73421);
+
+        Assert.NotNull(botLogin);
+        Assert.Equal(1, await db.Users.CountAsync());
+        Assert.Null(botLogin.User.Username);
+        Assert.Null(botLogin.User.FirstName);
+
+        var webAppLogin = await service.AuthenticateTelegramAsync(CreateInitData(Now, telegramUserId: 73421));
+        var repeatBotLogin = await service.AuthenticateBotAsync(BotApiKey, telegramUserId: 73421);
+
+        Assert.NotNull(webAppLogin);
+        Assert.NotNull(repeatBotLogin);
+        Assert.Equal(botLogin.User.Id, webAppLogin.User.Id);
+        Assert.Equal(webAppLogin.User.Id, repeatBotLogin.User.Id);
+        Assert.Equal(1, await db.Users.CountAsync());
+        Assert.Equal("alice_test", repeatBotLogin.User.Username);
+        Assert.Equal("Alice", repeatBotLogin.User.FirstName);
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(repeatBotLogin.Token);
+        Assert.Equal(webAppLogin.User.Id.ToString(CultureInfo.InvariantCulture), jwt.Subject);
+        Assert.Equal("73421", jwt.Claims.Single(claim => claim.Type == "tid").Value);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("wrong-key-with-adequate-length-123456")]
+    public async Task AuthenticateBotAsync_InvalidCredentialDoesNotCreateUser(string? apiKey)
+    {
+        using var db = CreateDb();
+
+        var result = await CreateService(db, Now).AuthenticateBotAsync(apiKey, telegramUserId: 73421);
+
+        Assert.Null(result);
+        Assert.Empty(await db.Users.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AuthenticateBotAsync_WrongCredentialOfSameLengthIsRejected()
+    {
+        using var db = CreateDb();
+        var wrongApiKey = new string('x', BotApiKey.Length);
+
+        var result = await CreateService(db, Now).AuthenticateBotAsync(wrongApiKey, telegramUserId: 73421);
+
+        Assert.Null(result);
+        Assert.Empty(await db.Users.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-73421)]
+    public async Task AuthenticateBotAsync_RejectsNonPositiveTelegramUserId(long telegramUserId)
+    {
+        using var db = CreateDb();
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            CreateService(db, Now).AuthenticateBotAsync(BotApiKey, telegramUserId));
+
+        Assert.Empty(await db.Users.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AuthenticateBotAsync_UnconfiguredCredentialIsRejected()
+    {
+        using var db = CreateDb();
+        var service = CreateService(db, Now, botApiKey: " ");
+
+        Assert.False(service.IsBotAuthenticationConfigured);
+        Assert.Null(await service.AuthenticateBotAsync(BotApiKey, telegramUserId: 73421));
+        Assert.Empty(await db.Users.ToListAsync());
     }
 
     [Fact]
@@ -246,7 +326,8 @@ public sealed class AuthServiceTests
         AppDbContext db,
         DateTimeOffset now,
         int maxAgeMinutes = 30,
-        string botToken = BotToken) =>
+        string botToken = BotToken,
+        string botApiKey = BotApiKey) =>
         new(
             db,
             Options.Create(new TelegramOptions
@@ -261,6 +342,7 @@ public sealed class AuthServiceTests
                 Secret = JwtSecret,
                 ExpiresHours = 6
             }),
+            Options.Create(new BotAuthOptions { ApiKey = botApiKey }),
             new FrozenTimeProvider(now),
             NullLogger<AuthService>.Instance);
 

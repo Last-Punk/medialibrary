@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MediaLibrary.Api.Documentation;
 using MediaLibrary.Api.Endpoints;
 using MediaLibrary.Api.Security;
 using MediaLibrary.Api.Services;
@@ -16,17 +17,27 @@ namespace MediaLibrary.Api.Tests;
 public sealed class ApiAuthorizationMetadataTests
 {
     [Fact]
-    public void AllLibraryRoutesRequireBearerAuthentication_AndTelegramLoginIsAnonymous()
+    public void LibraryRoutesRequireBearer_BotLoginUsesApiKeyAndAuthRoutesAreAnonymous()
     {
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddAuthorization();
-        builder.Services.AddRateLimiter(options => options.AddFixedWindowLimiter(
-            "telegram-auth",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 2,
-                Window = TimeSpan.FromMinutes(1)
-            }));
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.AddFixedWindowLimiter(
+                "telegram-auth",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 2,
+                    Window = TimeSpan.FromMinutes(1)
+                });
+            options.AddFixedWindowLimiter(
+                "bot-auth",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 2,
+                    Window = TimeSpan.FromMinutes(1)
+                });
+        });
         builder.Services.AddDbContext<AppDbContext>(options =>
             options.UseInMemoryDatabase($"ApiAuthorizationMetadataTests-{Guid.NewGuid()}"));
         builder.Services.AddHttpContextAccessor();
@@ -63,5 +74,13 @@ public sealed class ApiAuthorizationMetadataTests
             endpoint.RoutePattern.RawText?.TrimEnd('/') == "/api/auth/telegram");
         Assert.Contains(login.Metadata, metadata => metadata is IAllowAnonymous);
         Assert.DoesNotContain(login.Metadata, metadata => metadata is IAuthorizeData);
+
+        var botLogin = Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText?.TrimEnd('/') == "/api/auth/bot");
+        Assert.Contains(botLogin.Metadata, metadata => metadata is IAllowAnonymous);
+        Assert.DoesNotContain(botLogin.Metadata, metadata => metadata is IAuthorizeData);
+        Assert.Contains(botLogin.Metadata, metadata => metadata is BotApiKeyAuthenticationMetadata);
+        var botAuthRateLimit = Assert.Single(botLogin.Metadata.OfType<EnableRateLimitingAttribute>());
+        Assert.Equal("bot-auth", botAuthRateLimit.PolicyName);
     }
 }
