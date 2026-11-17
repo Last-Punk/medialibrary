@@ -23,4 +23,13 @@ public sealed class RateLimitingOptions
 
     /// <summary>Gets or sets the authentication queue limit.</summary>
     public int AuthQueueLimit { get; set; }
+
+    /// <summary>Gets or sets the number of bot-to-API token exchanges allowed per IP.</summary>
+    public int BotAuthPermitLimit { get; set; } = 100;
+
+    /// <summary>Gets or sets the bot authentication fixed-window duration, in seconds.</summary>
+    public int BotAuthWindowSeconds { get; set; } = 60;
+
+    /// <summary>Gets or sets the bot authentication queue limit.</summary>
+    public int BotAuthQueueLimit { get; set; }
 }
