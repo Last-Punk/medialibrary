@@ -17,7 +17,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_MapsDto_AndMarksRecordAsExternal()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new ImportMediaDto
         {
@@ -52,7 +52,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_DuplicateExternalIdAndSource_ThrowsDuplicateException()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         await service.ImportFromExternalAsync(ValidDto());
 
         var ex = await Assert.ThrowsAsync<DuplicateException>(
@@ -66,7 +66,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_DuplicateCheck_IgnoresExternalSourceCase()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         await service.ImportFromExternalAsync(ValidDto(externalSource: "TMDB"));
 
         await Assert.ThrowsAsync<DuplicateException>(
@@ -79,7 +79,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_SameExternalIdFromAnotherSource_IsAllowed()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         await service.ImportFromExternalAsync(ValidDto(externalSource: "TMDB"));
 
         var second = await service.ImportFromExternalAsync(ValidDto(externalSource: "RAWG"));
@@ -93,7 +93,7 @@ public class MediaServiceImportTests
     {
         // Ручні записи мають ExternalId = null, тож не спрацьовують у перевірці дублікатів.
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         await service.CreateAsync(new CreateMediaDto { Title = "Manual copy", Type = "movie" });
 
         var imported = await service.ImportFromExternalAsync(ValidDto());
@@ -108,7 +108,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_MissingExternalId_ThrowsArgumentException(string externalId)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.ExternalId = externalId;
@@ -125,7 +125,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_MissingExternalSource_ThrowsArgumentException(string externalSource)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.ExternalSource = externalSource;
@@ -140,7 +140,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_MissingTitle_ThrowsArgumentException()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.Title = "";
@@ -155,7 +155,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_YearOutOfRange_ThrowsArgumentException_FromDtoValidation()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.Year = 1800;
@@ -171,7 +171,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_WithUnknownType_ThrowsArgumentException()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.Type = "documentary";
@@ -186,7 +186,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_ReusesGenresAcrossImports()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var first = ValidDto(externalId: "27205");
         first.Genres = new List<string> { "Sci-Fi" };

@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MediaLibrary.Core.Data;
 using MediaLibrary.Api.Endpoints;
+using MediaLibrary.Api.Security;
 using MediaLibrary.Core.Models.Entities;
 
 namespace MediaLibrary.Api.Tests;
@@ -22,11 +23,13 @@ public class GenreEndpointsTests
     public async Task GetAll_ReturnsGenresSortedByName()
     {
         using var db = CreateDb();
-        db.Genres.AddRange(
+        var genres = new[]
+        {
             new Genre { Name = "Thriller" },
             new Genre { Name = "Action" },
-            new Genre { Name = "Sci-Fi" });
-        await db.SaveChangesAsync();
+            new Genre { Name = "Sci-Fi" }
+        };
+        SeedGenreMedia(db, genres);
 
         var json = await ExecuteGetAllAsync(db);
 
@@ -41,8 +44,8 @@ public class GenreEndpointsTests
     public async Task GetAll_ReturnsContractShape_WithIdAndNameOnly()
     {
         using var db = CreateDb();
-        db.Genres.Add(new Genre { Name = "Action" });
-        await db.SaveChangesAsync();
+        var genres = new[] { new Genre { Name = "Action" } };
+        SeedGenreMedia(db, genres);
         var genreId = await db.Genres.Select(g => g.Id).SingleAsync();
 
         var json = await ExecuteGetAllAsync(db);
@@ -61,6 +64,8 @@ public class GenreEndpointsTests
         // сприйметься як FromBody — і мапінг впаде ще до перевірки шляху.
         builder.Services.AddDbContext<AppDbContext>(opt =>
             opt.UseInMemoryDatabase($"GenreRouteTests-{Guid.NewGuid()}"));
+        builder.Services.AddSingleton<ICurrentUser>(TestCurrentUser.Default);
+        builder.Services.AddAuthorization();
         using var app = builder.Build();
 
         app.MapGenreEndpoints();
@@ -79,16 +84,33 @@ public class GenreEndpointsTests
         var methods = route.Metadata.OfType<HttpMethodMetadata>().SelectMany(m => m.HttpMethods);
         Assert.Contains("GET", methods);
         // Жодних інших маршрутів під /api/genres* бути не повинно.
-        Assert.Single(endpoints.Where(e =>
-            (e.RoutePattern.RawText ?? string.Empty).StartsWith("/api/genres", StringComparison.Ordinal)));
+        Assert.Single(endpoints, e =>
+            (e.RoutePattern.RawText ?? string.Empty).StartsWith("/api/genres", StringComparison.Ordinal));
     }
 
-    private static async Task<JsonElement> ExecuteGetAllAsync(AppDbContext db)
+    [Fact]
+    public async Task GetAll_HidesGenresUsedOnlyByOtherOwners()
+    {
+        using var db = CreateDb();
+        SeedGenreMedia(db, new[] { new Genre { Name = "Personal Drama" } }, ownerId: 101);
+        SeedGenreMedia(db, new[] { new Genre { Name = "Private Horror" } }, ownerId: 202);
+
+        var json = await ExecuteGetAllAsync(db, new TestCurrentUser(101));
+
+        var genres = json.GetProperty("genres").EnumerateArray()
+            .Select(genre => genre.GetProperty("name").GetString())
+            .ToArray();
+        Assert.Equal(new[] { "Personal Drama" }, genres);
+    }
+
+    private static async Task<JsonElement> ExecuteGetAllAsync(
+        AppDbContext db,
+        TestCurrentUser? currentUser = null)
     {
         var handler = typeof(GenreEndpoints).GetMethod("GetAll", BindingFlags.NonPublic | BindingFlags.Static)
             ?? throw new InvalidOperationException("GenreEndpoints.GetAll not found.");
 
-        var result = await (Task<IResult>)handler.Invoke(null, new object[] { db })!;
+        var result = await (Task<IResult>)handler.Invoke(null, new object[] { db, currentUser ?? TestCurrentUser.Default })!;
 
         await using var stream = new MemoryStream();
         var context = new DefaultHttpContext
@@ -102,6 +124,22 @@ public class GenreEndpointsTests
         stream.Position = 0;
         using var document = await JsonDocument.ParseAsync(stream);
         return document.RootElement.Clone();
+    }
+
+
+    private static void SeedGenreMedia(AppDbContext db, IEnumerable<Genre> genres, int ownerId = 1)
+    {
+        db.MediaItems.Add(new MediaItem
+        {
+            OwnerId = ownerId,
+            Title = "Fixture",
+            OriginalTitle = "Fixture",
+            Type = MediaType.Movie,
+            Status = MediaStatus.Plan,
+            CreatedAt = DateTime.UtcNow,
+            Genres = genres.ToList()
+        });
+        db.SaveChanges();
     }
 
     private static AppDbContext CreateDb() => new(

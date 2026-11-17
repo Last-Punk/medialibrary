@@ -241,6 +241,7 @@ public class SearchAggregatorServiceTests
     {
         var item = new MediaItem
         {
+            OwnerId = TestCurrentUser.Default.UserId,
             Title = title,
             OriginalTitle = title,
             Type = type,
@@ -262,7 +263,7 @@ public class SearchAggregatorServiceTests
         Func<HttpRequestMessage, HttpResponseMessage>? tmdbResponder = null,
         Func<HttpRequestMessage, HttpResponseMessage>? rawgResponder = null)
     {
-        var media = new MediaService(db);
+        var media = new MediaService(db, TestCurrentUser.Default);
 
         var tmdb = new TmdbService(
             tmdbResponder is null ? new HttpClient() : new HttpClient(new StubHttpMessageHandler(tmdbResponder)),

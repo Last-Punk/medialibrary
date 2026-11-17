@@ -17,7 +17,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_MapsDtoToEntity_AndReturnsContractDto()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto
         {
@@ -63,7 +63,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_ParsesTypeCaseInsensitively(string input, string expected)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto { Title = "T", Type = input });
 
@@ -74,7 +74,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_WithoutStatus_DefaultsToPlan()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto
         {
@@ -92,7 +92,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_WithoutGenresAndTags_LeavesCollectionsEmpty()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto { Title = "T", Type = "movie" });
 
@@ -108,7 +108,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_MissingTitle_ThrowsArgumentException(string title)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = title, Type = "movie" };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -123,7 +123,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_MissingType_ThrowsArgumentException(string? type)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = "T", Type = type! };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -137,7 +137,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_WithUnknownType_ThrowsArgumentException(string type)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = "T", Type = type };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -151,7 +151,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_RatingOutOfRange_ThrowsArgumentException(int rating)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = "T", Type = "movie", Rating = rating };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -165,7 +165,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_YearOutOfRange_ThrowsArgumentException(int year)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = "T", Type = "movie", Year = year };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -181,7 +181,7 @@ public class MediaServiceCreateTests
         using var db = CreateDb();
         db.Genres.Add(new Genre { Name = "Sci-Fi" });
         await db.SaveChangesAsync();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto
         {
@@ -200,7 +200,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_NormalizesTags_DropsEmptyDuplicatesAndTrims()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto
         {

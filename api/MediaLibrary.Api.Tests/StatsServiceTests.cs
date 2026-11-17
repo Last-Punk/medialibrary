@@ -119,16 +119,54 @@ public class StatsServiceTests
         Assert.Equal(("Sci-Fi", 1), top[4]);
     }
 
+    [Fact]
+    public async Task GetStats_OnlyCountsAuthenticatedOwnersLibrary()
+    {
+        using var db = CreateDb();
+        SeedItem(db, "Alice rated", status: MediaStatus.Completed, rating: 10, ownerId: 101);
+        SeedItem(db, "Alice unrated", type: MediaType.Series, ownerId: 101);
+        SeedItem(db, "Bob rated", status: MediaStatus.Dropped, rating: 1, ownerId: 202);
+
+        var json = await ExecuteGetStatsAsync(db, new TestCurrentUser(101));
+
+        Assert.Equal(2, json.GetProperty("total").GetInt32());
+        Assert.Equal(10, json.GetProperty("avgRating").GetDouble());
+        Assert.Equal(2, json.GetProperty("byStatus").EnumerateArray().Sum(row => row.GetProperty("count").GetInt32()));
+        Assert.Equal(2, json.GetProperty("byType").EnumerateArray().Sum(row => row.GetProperty("count").GetInt32()));
+        Assert.DoesNotContain(
+            json.GetProperty("byStatus").EnumerateArray(),
+            row => row.GetProperty("status").GetString() == "dropped");
+    }
+
+    [Fact]
+    public async Task GetStats_TopGenresDoesNotRevealGenresUsedOnlyByAnotherOwner()
+    {
+        using var db = CreateDb();
+        var sharedGenre = new Genre { Name = "Drama" };
+        var privateGenre = new Genre { Name = "Secret Genre" };
+        SeedItem(db, "Alice", genres: new[] { sharedGenre }, ownerId: 101);
+        SeedItem(db, "Bob", genres: new[] { privateGenre }, ownerId: 202);
+
+        var json = await ExecuteGetStatsAsync(db, new TestCurrentUser(101));
+
+        var topGenres = json.GetProperty("topGenres").EnumerateArray()
+            .Select(row => row.GetProperty("name").GetString())
+            .ToArray();
+        Assert.Equal(new[] { "Drama" }, topGenres);
+    }
+
     private static MediaItem SeedItem(
         AppDbContext db,
         string title,
         MediaType type = MediaType.Movie,
         MediaStatus status = MediaStatus.Plan,
         int? rating = null,
-        IEnumerable<Genre>? genres = null)
+        IEnumerable<Genre>? genres = null,
+        int ownerId = 1)
     {
         var item = new MediaItem
         {
+            OwnerId = ownerId,
             Title = title,
             OriginalTitle = title,
             Type = type,
@@ -151,12 +189,14 @@ public class StatsServiceTests
         return map;
     }
 
-    private static async Task<JsonElement> ExecuteGetStatsAsync(AppDbContext db)
+    private static async Task<JsonElement> ExecuteGetStatsAsync(
+        AppDbContext db,
+        TestCurrentUser? currentUser = null)
     {
         var handler = typeof(StatsEndpoints).GetMethod("GetStats", BindingFlags.NonPublic | BindingFlags.Static)
             ?? throw new InvalidOperationException("StatsEndpoints.GetStats not found.");
 
-        var result = await (Task<IResult>)handler.Invoke(null, new object[] { db })!;
+        var result = await (Task<IResult>)handler.Invoke(null, new object[] { db, currentUser ?? TestCurrentUser.Default })!;
         return await ExecuteJsonAsync(result);
     }
 

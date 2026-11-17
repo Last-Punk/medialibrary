@@ -18,7 +18,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.GetByIdAsync(item.Id);
 
@@ -44,7 +44,7 @@ public class MediaServiceCrudTests
     public async Task GetByIdAsync_WhenMissing_ReturnsNull()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         Assert.Null(await service.GetByIdAsync(999));
     }
@@ -54,7 +54,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var updated = await service.UpdateAsync(item.Id, new UpdateMediaDto
         {
@@ -83,7 +83,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var updated = await service.UpdateAsync(item.Id, new UpdateMediaDto
         {
@@ -106,7 +106,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var updated = await service.UpdateAsync(item.Id, new UpdateMediaDto
         {
@@ -128,7 +128,7 @@ public class MediaServiceCrudTests
     public async Task UpdateAsync_WhenMissing_ReturnsNullWithoutThrowing()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.UpdateAsync(999, new UpdateMediaDto { Rating = 5 });
 
@@ -140,7 +140,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(
             () => service.UpdateAsync(item.Id, new UpdateMediaDto { Title = "   " }));
@@ -153,7 +153,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(
             () => service.UpdateAsync(item.Id, new UpdateMediaDto { Status = "paused" }));
@@ -168,7 +168,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(
             () => service.UpdateAsync(item.Id, new UpdateMediaDto { Rating = rating }));
@@ -188,7 +188,7 @@ public class MediaServiceCrudTests
         });
         await db.SaveChangesAsync();
 
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         // Завантажуємо залежні сесії в контекст, щоб каскад спрацював детерміновано
         // (InMemory не має FK-обмежень рівня СУБД, на відміну від production-провайдерів).
         _ = await db.ViewingSessions.ToListAsync();
@@ -204,7 +204,7 @@ public class MediaServiceCrudTests
     public async Task DeleteAsync_WhenMissing_ReturnsFalse()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         Assert.False(await service.DeleteAsync(999));
     }
@@ -213,6 +213,7 @@ public class MediaServiceCrudTests
     {
         var item = new MediaItem
         {
+            OwnerId = TestCurrentUser.Default.UserId,
             Title = "Mad Max: Fury Road",
             OriginalTitle = "Mad Max: Fury Road",
             Year = 2015,
