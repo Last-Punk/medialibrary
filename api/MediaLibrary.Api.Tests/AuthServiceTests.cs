@@ -134,6 +134,10 @@ public sealed class AuthServiceTests
     [InlineData("zero-user-id")]
     [InlineData("negative-user-id")]
     [InlineData("string-user-id")]
+    [InlineData("boolean-user-id")]
+    [InlineData("null-user-id")]
+    [InlineData("object-user-id")]
+    [InlineData("array-user-id")]
     [InlineData("invalid-first-name-type")]
     [InlineData("oversized-init-data")]
     public async Task AuthenticateTelegramAsync_RejectsMalformedTamperedOrInvalidInitData(string scenario)
@@ -161,6 +165,10 @@ public sealed class AuthServiceTests
             "zero-user-id" => CreateInitData(Now, "{\"id\":0}"),
             "negative-user-id" => CreateInitData(Now, "{\"id\":-12}"),
             "string-user-id" => CreateInitData(Now, "{\"id\":\"73421\"}"),
+            "boolean-user-id" => CreateInitData(Now, "{\"id\":true}"),
+            "null-user-id" => CreateInitData(Now, "{\"id\":null}"),
+            "object-user-id" => CreateInitData(Now, "{\"id\":{}}"),
+            "array-user-id" => CreateInitData(Now, "{\"id\":[]}"),
             "invalid-first-name-type" => CreateInitData(Now, "{\"id\":73421,\"first_name\":42}"),
             "oversized-init-data" => new string('a', 16 * 1024 + 1),
             _ => throw new ArgumentOutOfRangeException(nameof(scenario), scenario, "Unknown test case.")
