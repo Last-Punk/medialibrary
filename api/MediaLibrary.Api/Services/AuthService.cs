@@ -18,7 +18,7 @@ namespace MediaLibrary.Api.Services;
 public sealed record TelegramAuthResult(string Token, User User);
 
 /// <summary>
-/// Verifies Telegram Web App init data, upserts the Telegram user, and issues an API JWT.
+/// Authenticates Telegram Web App or trusted bot-server identities and issues user API JWTs.
 /// </summary>
 public sealed class AuthService
 {
@@ -29,6 +29,7 @@ public sealed class AuthService
     private readonly AppDbContext _db;
     private readonly TelegramOptions _telegramOptions;
     private readonly JwtOptions _jwtOptions;
+    private readonly BotAuthOptions _botAuthOptions;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<AuthService> _logger;
 
@@ -37,12 +38,14 @@ public sealed class AuthService
         AppDbContext db,
         IOptions<TelegramOptions> telegramOptions,
         IOptions<JwtOptions> jwtOptions,
+        IOptions<BotAuthOptions> botAuthOptions,
         TimeProvider timeProvider,
         ILogger<AuthService> logger)
     {
         _db = db;
         _telegramOptions = telegramOptions.Value;
         _jwtOptions = jwtOptions.Value;
+        _botAuthOptions = botAuthOptions.Value;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -65,6 +68,61 @@ public sealed class AuthService
             return null;
         }
 
+        var user = await UpsertUserAsync(telegramUser, now, updateProfile: true, cancellationToken);
+        _logger.LogInformation("Authenticated application user {UserId} through Telegram Web App.", user.Id);
+        return new TelegramAuthResult(CreateToken(user, now), user);
+    }
+
+    /// <summary>Gets whether the trusted bot-to-API credential is configured.</summary>
+    public bool IsBotAuthenticationConfigured => !string.IsNullOrWhiteSpace(_botAuthOptions.ApiKey);
+
+    /// <summary>
+    /// Authenticates the trusted bot server and issues a user-scoped JWT for a Telegram account.
+    /// Invalid server credentials return null. Profile details are preserved because the bot
+    /// identity bridge only asserts the Telegram user ID from a trusted Telegram update.
+    /// </summary>
+    public async Task<TelegramAuthResult?> AuthenticateBotAsync(
+        string? apiKey,
+        long telegramUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!HasValidBotApiKey(apiKey))
+        {
+            _logger.LogWarning("Rejected bot authentication with invalid server credentials.");
+            return null;
+        }
+
+        if (telegramUserId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(telegramUserId), "Telegram user ID must be positive.");
+
+        var now = _timeProvider.GetUtcNow();
+        var user = await UpsertUserAsync(
+            new TelegramIdentity(telegramUserId, null, null),
+            now,
+            updateProfile: false,
+            cancellationToken);
+
+        _logger.LogInformation("Authenticated application user {UserId} through the trusted bot server.", user.Id);
+        return new TelegramAuthResult(CreateToken(user, now), user);
+    }
+
+    private bool HasValidBotApiKey(string? apiKey)
+    {
+        if (!IsBotAuthenticationConfigured || string.IsNullOrEmpty(apiKey))
+            return false;
+
+        var expected = Encoding.UTF8.GetBytes(_botAuthOptions.ApiKey);
+        var supplied = Encoding.UTF8.GetBytes(apiKey);
+        return supplied.Length == expected.Length
+            && CryptographicOperations.FixedTimeEquals(expected, supplied);
+    }
+
+    private async Task<User> UpsertUserAsync(
+        TelegramIdentity telegramUser,
+        DateTimeOffset now,
+        bool updateProfile,
+        CancellationToken cancellationToken)
+    {
         var user = await _db.Users.SingleOrDefaultAsync(
             item => item.TelegramUserId == telegramUser.Id,
             cancellationToken);
@@ -74,8 +132,8 @@ public sealed class AuthService
             user = new User
             {
                 TelegramUserId = telegramUser.Id,
-                Username = telegramUser.Username,
-                FirstName = telegramUser.FirstName,
+                Username = updateProfile ? telegramUser.Username : null,
+                FirstName = updateProfile ? telegramUser.FirstName : null,
                 CreatedAtUtc = now.UtcDateTime,
                 LastSeenAtUtc = now.UtcDateTime
             };
@@ -87,7 +145,7 @@ public sealed class AuthService
             }
             catch (DbUpdateException)
             {
-                // A concurrent first login may win the unique TelegramUserId insert.
+                // A concurrent first authentication may win the unique TelegramUserId insert.
                 _db.Entry(user).State = EntityState.Detached;
                 user = await _db.Users.SingleOrDefaultAsync(
                     item => item.TelegramUserId == telegramUser.Id,
@@ -96,18 +154,25 @@ public sealed class AuthService
                 if (user is null)
                     throw;
 
-                UpdateUserProfile(user, telegramUser, now);
+                if (updateProfile)
+                    UpdateUserProfile(user, telegramUser, now);
+                else
+                    UpdateLastSeen(user, now);
+
                 await _db.SaveChangesAsync(cancellationToken);
             }
         }
         else
         {
-            UpdateUserProfile(user, telegramUser, now);
+            if (updateProfile)
+                UpdateUserProfile(user, telegramUser, now);
+            else
+                UpdateLastSeen(user, now);
+
             await _db.SaveChangesAsync(cancellationToken);
         }
 
-        _logger.LogInformation("Authenticated application user {UserId} through Telegram.", user.Id);
-        return new TelegramAuthResult(CreateToken(user, now), user);
+        return user;
     }
 
     private bool TryValidateInitData(
@@ -262,8 +327,11 @@ public sealed class AuthService
     {
         user.Username = telegramUser.Username;
         user.FirstName = telegramUser.FirstName;
-        user.LastSeenAtUtc = now.UtcDateTime;
+        UpdateLastSeen(user, now);
     }
+
+    private static void UpdateLastSeen(User user, DateTimeOffset now) =>
+        user.LastSeenAtUtc = now.UtcDateTime;
 
     private string CreateToken(User user, DateTimeOffset now)
     {

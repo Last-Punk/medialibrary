@@ -26,7 +26,14 @@ builder.Services.AddSwaggerGen(options =>
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT",
-        Description = "Paste the JWT returned by POST /api/auth/telegram."
+        Description = "Paste the user JWT returned by an API authentication endpoint."
+    });
+    options.AddSecurityDefinition("BotApiKey", new OpenApiSecurityScheme
+    {
+        Name = "X-Bot-Api-Key",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Description = "Server-to-server credential for the trusted Telegram bot service."
     });
     options.OperationFilter<BearerSecurityOperationFilter>();
 });
