@@ -4,7 +4,7 @@ namespace MediaLibrary.Api.Middleware;
 
 /// <summary>
 /// Страхувальна сітка для винятків поза наявними try/catch ендпоінтів.
-/// Єдиний формат помилок { error, code } зберігається для всіх клієнтів API.
+/// Помилки прив'язки HTTP-запиту повертаються як 400; решта помилок зберігають формат { error, code }.
 /// </summary>
 public class ErrorHandlingMiddleware
 {
@@ -28,6 +28,10 @@ public class ErrorHandlingMiddleware
         catch (DuplicateException ex)
         {
             await WriteErrorAsync(context, StatusCodes.Status409Conflict, ex.Message, "MEDIA_DUPLICATE");
+        }
+        catch (BadHttpRequestException ex)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status400BadRequest, ex.Message, "VALIDATION_ERROR");
         }
         catch (ArgumentException ex)
         {

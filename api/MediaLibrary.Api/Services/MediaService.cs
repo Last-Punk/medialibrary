@@ -70,8 +70,9 @@ public class MediaService
 
         var total = await query.CountAsync();
 
-        var offset = Math.Max(0, filter.Offset);
-        var limit = filter.Limit <= 0 ? 20 : Math.Min(filter.Limit, 100);
+        var offset = Math.Max(0, filter.Offset ?? 0);
+        var requestedLimit = filter.Limit ?? 20;
+        var limit = requestedLimit <= 0 ? 20 : Math.Min(requestedLimit, 100);
 
         // Найновіші першими — так список очікує бот (/my).
         var items = await query
