@@ -211,6 +211,7 @@ public sealed class AuthService
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("id", out var idElement)
+                || idElement.ValueKind != JsonValueKind.Number
                 || !idElement.TryGetInt64(out var id)
                 || id <= 0
                 || !TryGetOptionalString(root, "username", out var username)
