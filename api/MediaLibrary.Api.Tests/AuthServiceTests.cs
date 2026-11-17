@@ -262,25 +262,23 @@ public sealed class AuthServiceTests
         IDictionary<string, string>? extraFields = null) =>
         CreateInitData(authDate.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), DefaultUserJson(telegramUserId), extraFields);
 
-    private static string CreateInitData(string authDate, string userJson)
-    {
-        var fields = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["auth_date"] = authDate,
-            ["query_id"] = "AAEAAAEAAAE",
-            ["user"] = userJson
-        };
-        return SignAndEncode(fields);
-    }
-
     private static string CreateInitData(
         DateTimeOffset authDate,
+        string userJson,
+        IDictionary<string, string>? extraFields = null) =>
+        CreateInitData(
+            authDate.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
+            userJson,
+            extraFields);
+
+    private static string CreateInitData(
+        string authDate,
         string userJson,
         IDictionary<string, string>? extraFields = null)
     {
         var fields = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["auth_date"] = authDate.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
+            ["auth_date"] = authDate,
             ["query_id"] = "AAEAAAEAAAE",
             ["user"] = userJson
         };
