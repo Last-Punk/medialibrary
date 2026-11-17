@@ -7,10 +7,10 @@ public sealed class JwtOptions
     public const string SectionName = "Jwt";
 
     /// <summary>Gets or sets the expected token issuer.</summary>
-    public string Issuer { get; set; } = string.Empty;
+    public string Issuer { get; set; } = "MediaLibrary.Api";
 
     /// <summary>Gets or sets the expected token audience.</summary>
-    public string Audience { get; set; } = string.Empty;
+    public string Audience { get; set; } = "MediaLibrary.Bot";
 
     /// <summary>Gets or sets the symmetric signing secret.</summary>
     public string Secret { get; set; } = string.Empty;
