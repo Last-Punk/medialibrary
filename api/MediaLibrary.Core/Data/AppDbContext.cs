@@ -16,6 +16,23 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.TelegramUserId)
+            .IsUnique();
+
+        modelBuilder.Entity<MediaItem>()
+            .HasOne(m => m.Owner)
+            .WithMany(u => u.MediaItems)
+            .HasForeignKey(m => m.OwnerId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<MediaItem>()
+            .HasIndex(m => new { m.OwnerId, m.ExternalSource, m.ExternalId })
+            .IsUnique();
+
+        modelBuilder.Entity<MediaItem>()
+            .HasIndex(m => new { m.OwnerId, m.Status });
+
         modelBuilder.Entity<MediaItem>()
             .HasMany(m => m.Genres)
             .WithMany(g => g.MediaItems)
