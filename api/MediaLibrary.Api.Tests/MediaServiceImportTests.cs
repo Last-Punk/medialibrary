@@ -7,9 +7,9 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// MediaService.ImportFromExternalAsync: мапінг зовнішнього результату (POST /api/search/import),
-/// захист від дублікатів за ExternalId + ExternalSource (DuplicateException → 409 MEDIA_DUPLICATE)
-/// та явна DataAnnotations-валідація DTO (ValidateDto).
+/// MediaService.ImportFromExternalAsync maps external results (POST /api/search/import),
+/// prevents duplicates by ExternalId + ExternalSource (DuplicateException → 409 MEDIA_DUPLICATE),
+/// and explicitly validates DTO DataAnnotations with ValidateDto.
 /// </summary>
 public class MediaServiceImportTests
 {
@@ -34,16 +34,16 @@ public class MediaServiceImportTests
         var result = await service.ImportFromExternalAsync(dto);
 
         Assert.True(result.Id > 0);
-        Assert.Equal("27205", result.ExternalId); // ідентифікатор нормалізується (trim)
+        Assert.Equal("27205", result.ExternalId); // The identifier is trimmed.
         Assert.Equal("TMDB", result.ExternalSource);
         Assert.Equal("Inception", result.Title);
-        Assert.Equal("Inception", result.OriginalTitle); // fallback на Title
+        Assert.Equal("Inception", result.OriginalTitle); // Falls back to Title.
         Assert.Equal(2010, result.Year);
         Assert.Equal("movie", result.Type);
         Assert.False(result.IsManualEntry);
-        Assert.Null(result.Rating); // імпорт не проставляє оцінку
+        Assert.Null(result.Rating); // Imports do not set a rating.
         Assert.Equal("plan", result.Status);
-        Assert.Empty(result.Tags); // імпорт не приймає теги
+        Assert.Empty(result.Tags); // Imports do not accept tags.
         Assert.Equal(new[] { "Sci-Fi", "Thriller" }, result.Genres);
         Assert.Equal(DateTimeKind.Utc, result.CreatedAt.Kind);
     }
@@ -91,7 +91,7 @@ public class MediaServiceImportTests
     [Fact]
     public async Task ImportAsync_ManualCopyWithSameTitle_DoesNotBlockImport()
     {
-        // Ручні записи мають ExternalId = null, тож не спрацьовують у перевірці дублікатів.
+        // Manual items have ExternalId = null, so they do not trigger duplicate checks.
         using var db = CreateDb();
         var service = new MediaService(db, TestCurrentUser.Default);
         await service.CreateAsync(new CreateMediaDto { Title = "Manual copy", Type = "movie" });

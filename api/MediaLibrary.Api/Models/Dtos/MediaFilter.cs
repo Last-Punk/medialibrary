@@ -1,8 +1,8 @@
 namespace MediaLibrary.Api.Models.Dtos;
 
 /// <summary>
-/// Query-параметри GET /api/media. Усі фільтри опційні.
-/// Пагінація за контрактом: default Limit = 20, max = 100.
+/// Optional query parameters for GET /api/media.
+/// Contract pagination defaults: Limit = 20, with a maximum of 100.
 /// </summary>
 public class MediaFilter
 {

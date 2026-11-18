@@ -194,10 +194,10 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 
-// Провайдер БД обирається середовищем: PostgreSQL у Production, SQLite у Development.
-// Рядок підключення в обох випадках конфігураційний — ConnectionStrings:Default
-// (у Production його задає змінна середовища ConnectionStrings__Default).
-// Міграції згенеровані окремо під кожен провайдер — у власних збірках
+// Select the database provider by environment: PostgreSQL in Production and SQLite in Development.
+// Both providers read their connection string from ConnectionStrings:Default
+// (set ConnectionStrings__Default through the production environment or secret manager).
+// Each provider has its own migrations assembly:
 // MediaLibrary.Migrations.Sqlite / MediaLibrary.Migrations.Postgres.
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("Connection string 'Default' is not configured.");
@@ -221,15 +221,15 @@ builder.Services.AddScoped<MediaService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddSingleton(TimeProvider.System);
 
-// Зовнішні каталоги: HttpClient із DI, ключі — з конфігурації (Tmdb:ApiKey, Rawg:ApiKey).
+// External catalogs use DI-managed HttpClient instances and configuration keys (Tmdb:ApiKey and Rawg:ApiKey).
 builder.Services.AddHttpClient<TmdbService>();
 builder.Services.AddHttpClient<RawgService>();
 builder.Services.AddScoped<SearchAggregatorService>();
 
 var app = builder.Build();
 
-// Схема БД синхронізується з моделлю на старті: застосовуються міграції
-// активного провайдера (SQLite для Development, PostgreSQL для Production).
+// On startup, apply the migrations
+// for the active provider (SQLite in Development or PostgreSQL in Production).
 using (var scope = app.Services.CreateScope())
 {
     // Fail before touching the database if security-critical configuration is invalid.

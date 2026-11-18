@@ -10,10 +10,10 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// Пошуковий конвейер «БД → TMDB → RAWG»: fallback, коли зовнішні провайдери
-/// недоступні (немає ключа або помилка мережі), об'єднання та дедуплікація
-/// результатів за парою ExternalSource + ExternalId, фільтрація за type.
-/// HTTP-залежності ізольовані підставним HttpMessageHandler, БД — InMemory.
+/// Search pipeline database → TMDB → RAWG: fallback when external providers
+/// are unavailable (missing key or network error), result merging and deduplication
+/// by ExternalSource + ExternalId, and filtering by type.
+/// HTTP dependencies use a stub HttpMessageHandler; the database uses InMemory.
 /// </summary>
 public class SearchAggregatorServiceTests
 {
@@ -53,7 +53,7 @@ public class SearchAggregatorServiceTests
     [Fact]
     public async Task SearchAsync_WithoutExternalApiKeys_ReturnsLocalDatabaseResults()
     {
-        // Без ключів TMDB/RAWG сервіси штатно повертають порожнє — лишається локальна БД.
+        // Without TMDB/RAWG keys, catalog services return empty results and the local database remains available.
         using var db = CreateDb();
         SeedItem(db, "Inception", MediaType.Movie, externalId: "27205", externalSource: "TMDB");
 
@@ -111,7 +111,7 @@ public class SearchAggregatorServiceTests
         var results = await aggregator.SearchAsync("Inception", null);
 
         Assert.Equal(3, results.Count);
-        // Локальний запис іде першим і виграє дедуплікацію у зовнішнього близнюка.
+        // The local record is first and wins deduplication against its external match.
         Assert.Equal("Inception (local copy)", results[0].Title);
         Assert.Single(results, r => r.ExternalId == "27205");
         Assert.Contains(results, r => r.ExternalId == "238" && r.ExternalSource == "TMDB" && r.Year == 2008);
@@ -133,7 +133,7 @@ public class SearchAggregatorServiceTests
 
         var results = await aggregator.SearchAsync("Inception", "movie");
 
-        // «TMDB|27205» із зовнішнього джерела збігається з локальним «tmdb|27205».
+        // The external "TMDB|27205" matches the local "tmdb|27205" case-insensitively.
         var only = Assert.Single(results);
         Assert.Equal("tmdb", only.ExternalSource);
     }
@@ -175,7 +175,7 @@ public class SearchAggregatorServiceTests
         Assert.False(rawgCalled);
         var movie = Assert.Single(results);
         Assert.Equal("movie", movie.Type);
-        // Постер збирається з TMDB-шляху та ImageBaseUrl за замовчуванням.
+        // The poster URL combines the TMDB path with the default ImageBaseUrl.
         Assert.Equal("https://image.tmdb.org/t/p/w500/p1.jpg", movie.PosterUrl);
     }
 
@@ -293,7 +293,7 @@ public class SearchAggregatorServiceTests
             Content = new StringContent(body, Encoding.UTF8, "application/json")
         };
 
-    /// <summary>Підставний транспорт HttpClient: відповідь повністю контролюється тестом.</summary>
+    /// <summary>Stub HttpClient transport whose responses are controlled by the test.</summary>
     private sealed class StubHttpMessageHandler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;

@@ -7,9 +7,9 @@ using Microsoft.EntityFrameworkCore;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// Сесії перегляду (/api/media/{id}/sessions): читання відсортоване за датою
-/// (новіші перші), створення за замовчуванням бере поточний UTC-час, коли Date
-/// не передано. Відсутнє медіа → null (ендпоінт мапить у 404 MEDIA_NOT_FOUND).
+/// Viewing sessions (/api/media/{id}/sessions): results are sorted by date
+/// (newest first); creation uses the current UTC time when Date
+/// is omitted. Missing media returns null (the endpoint maps it to 404 MEDIA_NOT_FOUND).
 /// </summary>
 public class MediaServiceSessionsTests
 {
@@ -126,7 +126,7 @@ public class MediaServiceSessionsTests
 
         Assert.NotNull(result);
         Assert.Equal(provided, result.Date);
-        // Kind = Utc гарантує суфікс Z у JSON-відповіді (ISO 8601 за контрактом).
+        // Kind = Utc ensures the JSON response uses the contract ISO 8601 Z suffix.
         Assert.Equal(DateTimeKind.Utc, result.Date.Kind);
     }
 

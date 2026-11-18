@@ -8,7 +8,7 @@ using MediaLibrary.Core.Models.Entities;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Дублікат за externalId + externalSource. Ендпоінти маплять у 409 MEDIA_DUPLICATE.
+/// Duplicate externalId + externalSource pair; endpoints map this to 409 MEDIA_DUPLICATE.
 /// </summary>
 public class DuplicateException : Exception
 {
@@ -16,8 +16,8 @@ public class DuplicateException : Exception
 }
 
 /// <summary>
-/// CRUD медіатеки + мапінг Entity → DTO.
-/// Невалідні вхідні дані — ArgumentException (ендпоінти маплять у 400 VALIDATION_ERROR).
+/// CRUD operations for the library and entity-to-DTO mapping.
+/// Invalid input throws ArgumentException, which endpoints map to 400 VALIDATION_ERROR.
 /// </summary>
 public class MediaService
 {
@@ -74,7 +74,7 @@ public class MediaService
         var requestedLimit = filter.Limit ?? 20;
         var limit = requestedLimit <= 0 ? 20 : Math.Min(requestedLimit, 100);
 
-        // Найновіші першими — так список очікує бот (/my).
+        // Sort newest first, matching the bot library list (/my).
         var items = await query
             .OrderByDescending(m => m.CreatedAt)
             .ThenByDescending(m => m.Id)
@@ -157,7 +157,7 @@ public class MediaService
 
         ValidateDto(dto);
 
-        // null у DTO = поле не передане, лишаємо без змін.
+        // A null DTO field means it was omitted and must remain unchanged.
         if (dto.Title is not null)
         {
             var title = dto.Title.Trim();
@@ -257,8 +257,8 @@ public class MediaService
         if (exists)
             throw new DuplicateException("Media already exists");
 
-        // Жанри з TMDB/RAWG окремим запитом підтягне етап інтеграції пошуку;
-        // тут приймаємо лише ті, що клієнт передав у запиті.
+        // A later catalog integration step can fetch genres from TMDB/RAWG separately;
+        // for now, use only genres supplied by the client.
         var item = new MediaItem
         {
             OwnerId = ownerId,
@@ -334,7 +334,7 @@ public class MediaService
         {
             Id = session.Id,
             MediaItemId = session.MediaItemId,
-            // SpecifyKind гарантує суфікс Z у JSON навіть після читання дати з SQLite.
+            // SpecifyKind ensures JSON uses the Z suffix after reading a date from SQLite.
             Date = AsUtc(session.Date),
             Note = session.Note,
             Progress = session.Progress
@@ -349,7 +349,7 @@ public class MediaService
             Title = item.Title,
             OriginalTitle = item.OriginalTitle,
             Year = item.Year,
-            // Enum → рядок у нижньому регістрі, як вимагає контракт ("movie", "completed").
+            // Serialize enums as lowercase strings as required by the contract ("movie", "completed").
             Type = item.Type.ToString().ToLowerInvariant(),
             PosterUrl = item.PosterUrl,
             Overview = item.Overview,
@@ -361,7 +361,7 @@ public class MediaService
             IsManualEntry = item.IsManualEntry,
             Genres = item.Genres.Select(g => g.Name).OrderBy(name => name).ToList(),
             Tags = item.Tags.Select(t => t.Name).OrderBy(name => name).ToList(),
-            // У БД дати зберігаються в UTC. SpecifyKind — щоб JSON мав суфікс Z (ISO 8601 UTC з контракту).
+            // Dates are stored in UTC. SpecifyKind ensures the JSON value has the contract ISO 8601 UTC Z suffix.
             CreatedAt = AsUtc(item.CreatedAt),
             UpdatedAt = item.UpdatedAt.HasValue ? AsUtc(item.UpdatedAt.Value) : null
         };
@@ -374,8 +374,8 @@ public class MediaService
         if (normalized.Count == 0)
             return result;
 
-        // Довідник жанрів невеликий: порівнюємо в пам'яті без урахування регістру,
-        // щоб коректно працювали й не-ASCII назви (SQL lower() у SQLite — лише ASCII).
+        // The genre dictionary is small, so compare names in memory without case sensitivity,
+        // which also handles non-ASCII names (SQLite SQL lower() only handles ASCII).
         var existing = await _db.Genres.ToListAsync();
 
         foreach (var name in normalized)
@@ -461,7 +461,7 @@ public class MediaService
 
     private static void ValidateDto<T>(T dto) where T : class
     {
-        // Minimal APIs у .NET 9 самі не виконують DataAnnotations, тому запускаємо їх явно.
+        // .NET 9 Minimal APIs do not run DataAnnotations automatically, so validate them explicitly.
         var results = new List<ValidationResult>();
         var context = new ValidationContext(dto);
 

@@ -13,9 +13,9 @@ using MediaLibrary.Core.Models.Entities;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// GET /api/genres: довідник відсортований за name, формат відповіді { genres: [...] },
-/// маршрут відповідає контрактному /api/genres (кінцевий слеш у RawText — артефакт
-/// складання MapGroup+MapGet(""), на маршрутизацію не впливає).
+/// GET /api/genres returns a dictionary sorted by name using the { genres: [...] } response shape.
+/// The route matches the contract path /api/genres (the trailing slash in RawText is an artifact
+/// of combining MapGroup and MapGet(""), and does not affect routing).
 /// </summary>
 public class GenreEndpointsTests
 {
@@ -60,8 +60,8 @@ public class GenreEndpointsTests
     public void MapGenreEndpoints_MapsExactlyTheContractRoute()
     {
         var builder = WebApplication.CreateBuilder();
-        // AppDbContext має бути в DI, інакше під час побудови маршруту параметр обробника
-        // сприйметься як FromBody — і мапінг впаде ще до перевірки шляху.
+        // AppDbContext must be registered in DI; otherwise the handler parameter is treated
+        // as FromBody and route construction fails before the path can be tested.
         builder.Services.AddDbContext<AppDbContext>(opt =>
             opt.UseInMemoryDatabase($"GenreRouteTests-{Guid.NewGuid()}"));
         builder.Services.AddSingleton<ICurrentUser>(TestCurrentUser.Default);
@@ -75,15 +75,15 @@ public class GenreEndpointsTests
             .OfType<RouteEndpoint>()
             .ToList();
 
-        // Складання MapGroup("/api/genres") + MapGet("") формально дає RawText
-        // "/api/genres/" — косметичний артефакт патерн-білдера. Маршрутизація кінцевий
-        // слеш ігнорує; контрактний (і єдиний) шлях — /api/genres, його ж бачить
-        // і Swagger (див. експортований swagger.json), і клієнт.
+        // Combining MapGroup("/api/genres") and MapGet("") produces this RawText value:
+        // "/api/genres/". This is a cosmetic route-pattern artifact; routing ignores the
+        // trailing slash. The contract path is /api/genres, which is also the path seen by
+        // Swagger (see the exported swagger.json) and API clients.
         var route = Assert.Single(endpoints, e =>
             (e.RoutePattern.RawText ?? string.Empty).TrimEnd('/') == "/api/genres");
         var methods = route.Metadata.OfType<HttpMethodMetadata>().SelectMany(m => m.HttpMethods);
         Assert.Contains("GET", methods);
-        // Жодних інших маршрутів під /api/genres* бути не повинно.
+        // No other routes under /api/genres* should be registered.
         Assert.Single(endpoints, e =>
             (e.RoutePattern.RawText ?? string.Empty).StartsWith("/api/genres", StringComparison.Ordinal));
     }

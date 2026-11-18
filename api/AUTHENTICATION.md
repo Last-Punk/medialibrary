@@ -66,4 +66,4 @@ The authenticated subject is the only source of the owner ID. Media list filters
 
 The default fixed-window limits are 100 API requests per 60 seconds per authenticated user (or per caller IP when anonymous), 10 Telegram Web App login attempts per 60 seconds per caller IP, and 100 bot-server login attempts per 60 seconds per caller IP. Permit limits, window durations, and queue limits are configurable under `RateLimiting`. Rejections return `429` with code `RATE_LIMITED`.
 
-`CONTRACT.md` has not been changed. Update that file only after its owner approves the contract changes.
+`CONTRACT.md` has an English-only wording update; its endpoint paths, fields, status codes, and other contract semantics are unchanged.

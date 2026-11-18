@@ -4,9 +4,9 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Endpoints;
 
 /// <summary>
-/// Ендпоінти пошуку за CONTRACT.md: GET /api/search та POST /api/search/import.
-/// Обробники — окремі методи, бо лямбда з різними типами IResult
-/// (Results.Ok / Created / Conflict) не проходить виведення типу.
+/// Search endpoints defined by CONTRACT.md: GET /api/search and POST /api/search/import.
+/// Handlers are separate methods because a lambda returning different IResult types
+/// (Results.Ok, Created, or Conflict) does not support type inference here.
 /// </summary>
 public static class SearchEndpoints
 {
@@ -24,7 +24,7 @@ public static class SearchEndpoints
 
     /// <summary>
     /// GET /api/search?query=...&amp;type=...
-    /// Відповідь завжди { "results": [...] } — навіть коли нічого не знайдено.
+    /// Always return { "results": [...] }, including when the search finds nothing.
     /// </summary>
     private static async Task<IResult> Search(
         string? query,
@@ -41,14 +41,14 @@ public static class SearchEndpoints
         }
         catch (ArgumentException ex)
         {
-            // Невалідний type — та сама помилка валідації, що й у /api/media.
+            // An invalid type uses the same validation error as /api/media.
             return Results.BadRequest(Error(ex.Message, "VALIDATION_ERROR"));
         }
     }
 
     /// <summary>
-    /// POST /api/search/import — імпорт обраного результату в медіатеку.
-    /// Дублікат за ExternalId + ExternalSource → 409 MEDIA_DUPLICATE.
+    /// POST /api/search/import imports a selected result into the library.
+    /// A duplicate ExternalId + ExternalSource pair returns 409 MEDIA_DUPLICATE.
     /// </summary>
     private static async Task<IResult> Import(ImportMediaDto dto, MediaService service)
     {

@@ -3,8 +3,8 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Middleware;
 
 /// <summary>
-/// Страхувальна сітка для винятків поза наявними try/catch ендпоінтів.
-/// Помилки прив'язки HTTP-запиту повертаються як 400; решта помилок зберігають формат { error, code }.
+/// Fallback handling for exceptions not handled by endpoint-level try/catch blocks.
+/// HTTP binding errors return 400; all other errors use the { error, code } response shape.
 /// </summary>
 public class ErrorHandlingMiddleware
 {
@@ -52,7 +52,7 @@ public class ErrorHandlingMiddleware
         string message,
         string code)
     {
-        // Після початку відповіді змінювати статус і тіло вже небезпечно.
+        // Once the response has started, its status and body must not be changed.
         if (context.Response.HasStarted)
             return;
 

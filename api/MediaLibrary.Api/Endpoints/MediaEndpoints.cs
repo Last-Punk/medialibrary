@@ -4,8 +4,8 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Endpoints;
 
 /// <summary>
-/// Реальні ендпоінти /api/media (замість заглушки з Дня 2).
-/// Формати відповідей і помилок — строго за CONTRACT.md.
+/// Media endpoints that implement the /api/media contract.
+/// Response and error payloads follow CONTRACT.md.
 /// </summary>
 public static class MediaEndpoints
 {

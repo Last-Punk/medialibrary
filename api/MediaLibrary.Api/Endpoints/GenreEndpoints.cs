@@ -5,7 +5,7 @@ using MediaLibrary.Core.Data;
 namespace MediaLibrary.Api.Endpoints;
 
 /// <summary>
-/// Довідник жанрів. Віддаємо лише дані для читання, без відстеження EF.
+/// Read-only genre catalog; query without EF change tracking.
 /// </summary>
 public static class GenreEndpoints
 {
@@ -15,7 +15,7 @@ public static class GenreEndpoints
             .WithTags("Genres")
             .RequireAuthorization();
 
-        // Порожній шаблон зберігає точний контрактний шлях /api/genres без слеша в кінці.
+        // An empty route pattern preserves the exact /api/genres path without a trailing slash.
         group.MapGet("", GetAll);
 
         return app;

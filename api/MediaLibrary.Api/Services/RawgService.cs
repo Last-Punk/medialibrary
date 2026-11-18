@@ -5,9 +5,9 @@ using MediaLibrary.Api.Models.Dtos;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Пошук ігор у RAWG (GET games?search=...). Ключ і адреса — з конфігурації (секція Rawg).
-/// Як і з TMDB: немає ключа / не-2xx / мережева помилка → warning у лог і порожній список,
-/// щоб пошук не падав, а просто повертав менше результатів.
+/// Search RAWG games (GET games?search=...). The API key and base URL come from the Rawg configuration section.
+/// As with TMDB, a missing key, non-2xx response, or network error is logged as a warning and returns an empty list,
+/// so search returns fewer results instead of failing.
 /// </summary>
 public class RawgService
 {
@@ -34,7 +34,7 @@ public class RawgService
         _baseUrl = EnsureTrailingSlash(configuration["Rawg:BaseUrl"], DefaultBaseUrl);
     }
 
-    /// <summary>Ігри за назвою.</summary>
+    /// <summary>Search games by title.</summary>
     public async Task<List<SearchResultDto>> SearchGamesAsync(string query)
     {
         var results = new List<SearchResultDto>();
@@ -44,7 +44,7 @@ public class RawgService
 
         if (_apiKey.Length == 0)
         {
-            // Ключа немає — штатний режим розробки: працює лише локальна БД.
+            // A missing key is a supported development mode: search only the local database.
             _logger.LogWarning(
                 "RAWG API key is not configured (Rawg:ApiKey). Skipping external search for \"{Query}\".",
                 query);
@@ -90,7 +90,7 @@ public class RawgService
                     Year = ParseYear(item.Released),
                     Type = "game",
                     PosterUrl = TrimOrNull(item.BackgroundImage),
-                    // Список RAWG опису не віддає — окремий запит не робимо.
+                    // RAWG does not include a description in this list response, so avoid a second request.
                     Overview = null
                 });
             }
@@ -111,7 +111,7 @@ public class RawgService
         return results;
     }
 
-    /// <summary>"2015-05-19" → 2015. Порожнє або сміття → null.</summary>
+    /// <summary>Convert "2015-05-19" to 2015; return null for empty or invalid input.</summary>
     private static int? ParseYear(string? date)
     {
         var value = TrimOrNull(date);
@@ -136,7 +136,7 @@ public class RawgService
         return trimmed.EndsWith('/') ? trimmed : trimmed + "/";
     }
 
-    // Формат відповіді RAWG — snake_case, тому імена полів задаємо явно.
+    // RAWG uses snake_case response fields, so map their names explicitly.
     private sealed class RawgSearchResponse
     {
         [JsonPropertyName("count")]

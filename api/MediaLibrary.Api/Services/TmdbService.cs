@@ -5,19 +5,19 @@ using MediaLibrary.Api.Models.Dtos;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Пошук фільмів і серіалів у TMDB (search/movie, search/tv).
-/// Ключ і адреси беруться з конфігурації (секція Tmdb), у коді їх немає.
-/// Будь-яка проблема зовнішнього сервісу (немає ключа, не-2xx, мережа, таймаут)
-/// не валить запит: пишемо warning у лог і повертаємо порожній список —
-/// агрегатор тоді віддасть лише те, що знайшов в інших джерелах.
+/// Search TMDB movies and TV series (search/movie and search/tv).
+/// The API key and URLs come from the Tmdb configuration section; no credentials are stored in code.
+/// Any external-service problem (missing key, non-2xx response, network error, or timeout)
+/// is logged as a warning and returns an empty list instead of failing the request;
+/// the aggregator can still return results from other sources.
 /// </summary>
 public class TmdbService
 {
     public const string Source = "TMDB";
 
     private const string DefaultBaseUrl = "https://api.themoviedb.org/3/";
-    // EnsureTrailingSlash повертає fallback як є — тому слеш у кінці тут обов'язковий,
-    // інакше за відсутності конфігурації постер склеїться без "/" ("/t/p/w500" + "p1.jpg").
+    // EnsureTrailingSlash returns the fallback unchanged, so this trailing slash is required
+    // to avoid concatenating poster paths without a separator when configuration is missing.
     private const string DefaultImageBaseUrl = "https://image.tmdb.org/t/p/w500/";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -40,11 +40,11 @@ public class TmdbService
         _imageBaseUrl = EnsureTrailingSlash(configuration["Tmdb:ImageBaseUrl"], DefaultImageBaseUrl);
     }
 
-    /// <summary>Фільми (search/movie).</summary>
+    /// <summary>Search movies (search/movie).</summary>
     public Task<List<SearchResultDto>> SearchMoviesAsync(string query) =>
         SearchAsync("search/movie", "movie", query);
 
-    /// <summary>Серіали (search/tv).</summary>
+    /// <summary>Search TV series (search/tv).</summary>
     public Task<List<SearchResultDto>> SearchSeriesAsync(string query) =>
         SearchAsync("search/tv", "series", query);
 
@@ -57,14 +57,14 @@ public class TmdbService
 
         if (_apiKey.Length == 0)
         {
-            // Ключа немає — це штатний режим для розробки: працює лише локальна БД.
+            // A missing key is a supported development mode: search only the local database.
             _logger.LogWarning(
                 "TMDB API key is not configured (Tmdb:ApiKey). Skipping external search for \"{Query}\".",
                 query);
             return results;
         }
 
-        // query обов'язково URL-кодуємо: пробіли, кирилиця та & інакше ламають запит.
+        // URL-encode the query so spaces, Unicode, and ampersands do not break the request.
         var url = $"{_baseUrl}{path}?api_key={Uri.EscapeDataString(_apiKey)}&query={Uri.EscapeDataString(query)}&language=en-US";
 
         try
@@ -96,7 +96,7 @@ public class TmdbService
 
                 results.Add(new SearchResultDto
                 {
-                    // id у TMDB числовий, у контракті externalId — рядок.
+                    // TMDB IDs are numeric; the contract represents externalId as a string.
                     ExternalId = item.Id.Value.ToString(),
                     ExternalSource = Source,
                     Title = title,
@@ -109,7 +109,7 @@ public class TmdbService
         }
         catch (OperationCanceledException ex)
         {
-            // Таймаут HttpClient або скасування запиту — не привід валити пошук.
+            // An HttpClient timeout or request cancellation must not fail the overall search.
             _logger.LogWarning(ex, "TMDB request to {Path} was cancelled or timed out.", path);
         }
         catch (HttpRequestException ex)
@@ -130,11 +130,11 @@ public class TmdbService
         if (path is null)
             return null;
 
-        // TMDB віддає шлях із провідним слешем; склеюємо без подвійного "//".
+        // TMDB paths start with a slash; combine them without creating a double slash.
         return _imageBaseUrl + path.TrimStart('/');
     }
 
-    /// <summary>"2010-07-16" → 2010. Порожнє або сміття → null.</summary>
+    /// <summary>Convert "2010-07-16" to 2010; return null for empty or invalid input.</summary>
     private static int? ParseYear(string? date)
     {
         var value = TrimOrNull(date);
@@ -171,7 +171,7 @@ public class TmdbService
         return trimmed.EndsWith('/') ? trimmed : trimmed + "/";
     }
 
-    // Формат відповіді TMDB — snake_case, тому імена полів задаємо явно.
+    // TMDB uses snake_case response fields, so map their names explicitly.
     private sealed class TmdbSearchResponse
     {
         [JsonPropertyName("page")]
@@ -189,7 +189,7 @@ public class TmdbService
         [JsonPropertyName("id")]
         public int? Id { get; set; }
 
-        // Фільми віддають title/release_date, серіали — name/first_air_date.
+        // Movies use title/release_date; TV series use name/first_air_date.
         [JsonPropertyName("title")]
         public string? Title { get; set; }
 

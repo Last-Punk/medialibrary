@@ -3,14 +3,14 @@ using MediaLibrary.Api.Models.Dtos;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Пошук за контрактом GET /api/search: спочатку локальна БД, потім зовнішні каталоги,
-/// інакше — порожній список (бот далі пропонує створити запис вручну).
-/// Порядок фіксований — «БД → TMDB/RAWG», тому локальний запис завжди виграє дедуплікацію
-/// у свого ж зовнішнього близнюка.
+/// Search for GET /api/search: query the local database first, then external catalogs,
+/// or return an empty list (the bot can then offer manual item creation).
+/// The order is fixed (database → TMDB/RAWG), so a local item wins duplicate resolution
+/// against its external catalog match.
 /// </summary>
 public class SearchAggregatorService
 {
-    // Скільки локальних записів віддаємо максимум (стеля контракту для limit).
+    // Maximum number of local items to return (the contract limit cap).
     private const int LocalLimit = 100;
 
     private readonly MediaService _media;
@@ -31,8 +31,8 @@ public class SearchAggregatorService
     }
 
     /// <summary>
-    /// type: null — усі джерела; movie/series — TMDB; game — RAWG.
-    /// Помилки зовнішніх API не валять запит — вони лише зменшують результат.
+    /// type: null searches all sources; movie/series use TMDB; game uses RAWG.
+    /// External API failures reduce the result set but do not fail the request.
     /// </summary>
     public async Task<List<SearchResultDto>> SearchAsync(string query, string? type)
     {
@@ -44,17 +44,17 @@ public class SearchAggregatorService
         var search = query.Trim();
         var typeFilter = NormalizeType(type);
 
-        // 1. Локальна БД першою — вона ж дає fallback, коли зовнішні ключі не налаштовані.
+        // 1. Search the local database first; it is also the fallback when catalog keys are unset.
         results.AddRange(ToSearchResults(await SearchLocalAsync(search, typeFilter)));
 
-        // 2. TMDB: фільми для movie/без типу, серіали для series/без типу.
+        // 2. TMDB: movies for movie/no type, and TV series for series/no type.
         if (typeFilter is null or "movie")
             AddUnique(results, await SafeCall(() => _tmdb.SearchMoviesAsync(search), "TMDB movies"));
 
         if (typeFilter is null or "series")
             AddUnique(results, await SafeCall(() => _tmdb.SearchSeriesAsync(search), "TMDB series"));
 
-        // 3. RAWG: ігри для game/без типу.
+        // 3. RAWG: games for game/no type.
         if (typeFilter is null or "game")
             AddUnique(results, await SafeCall(() => _rawg.SearchGamesAsync(search), "RAWG games"));
 
@@ -76,8 +76,8 @@ public class SearchAggregatorService
 
     /// <summary>
     /// MediaResponseDto → SearchResultDto.
-    /// Ручний запис без ExternalId ідентифікуємо парою ("Manual", id у рядку),
-    /// щоб його можна було показати в пошуку, але не сплутати з результатом TMDB/RAWG.
+    /// Identify a manual item without ExternalId by ("Manual", its string ID),
+    /// so it can appear in search without being confused with a TMDB/RAWG result.
     /// </summary>
     private static IEnumerable<SearchResultDto> ToSearchResults(IEnumerable<MediaResponseDto> items)
     {
@@ -105,8 +105,8 @@ public class SearchAggregatorService
     }
 
     /// <summary>
-    /// Дедуплікація за парою ExternalSource + ExternalId (без урахування регістру).
-    /// Перший збіг лишається — тобто локальний запис перекриває результат TMDB/RAWG.
+    /// Deduplicate by ExternalSource + ExternalId, ignoring case.
+    /// Keep the first match, allowing a local item to override a TMDB/RAWG result.
     /// </summary>
     private static void AddUnique(List<SearchResultDto> target, IEnumerable<SearchResultDto> candidates)
     {
@@ -136,8 +136,8 @@ public class SearchAggregatorService
     }
 
     /// <summary>
-    /// Зовнішній сервіс сам логує свої проблеми, але на випадок непередбаченого
-    /// винятку страхуємось і тут: пошук має віддати 200 навіть тоді, коли TMDB лежить.
+    /// External services log their own failures; this guard handles unexpected exceptions
+    /// so search still returns 200 when a catalog provider is unavailable.
     /// </summary>
     private async Task<List<SearchResultDto>> SafeCall(
         Func<Task<List<SearchResultDto>>> call,
@@ -155,8 +155,8 @@ public class SearchAggregatorService
     }
 
     /// <summary>
-    /// "Movie " → "movie"; порожнє → null (шукаємо в усіх джерелах).
-    /// Невалідний тип не ковтаємо — хай ендпоінт віддасть 400 VALIDATION_ERROR.
+    /// Normalize "Movie " to "movie"; map empty input to null (search all sources).
+    /// Do not swallow an invalid type; let the endpoint return 400 VALIDATION_ERROR.
     /// </summary>
     private static string? NormalizeType(string? type)
     {

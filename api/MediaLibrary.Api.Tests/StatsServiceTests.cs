@@ -10,11 +10,11 @@ using MediaLibrary.Core.Models.Entities;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// GET /api/stats: агреговані лічильники за статусом/типом (контрактні lowercase-ключі),
-/// середній рейтинг лише для non-null оцінок (округлення до 1 знака; 0, коли оцінок немає),
-/// topGenres — щонайбільше п'ять найвживаніших. Порожня БД дає валідну нульову відповідь.
-/// Агрегація зібрана в обробнику StatsEndpoints, тож тести викликають його напряму
-/// та перевіряють фактичний JSON (як його бачить клієнт API).
+/// GET /api/stats: aggregates counts by status/type (contract lowercase keys),
+/// averages only non-null ratings (rounded to one decimal place; 0 when no ratings exist),
+/// and returns up to five topGenres. An empty database produces a valid zero-valued response.
+/// Aggregation is implemented in StatsEndpoints, so tests call the handler directly
+/// and inspect the actual JSON returned to an API client.
 /// </summary>
 public class StatsServiceTests
 {
@@ -49,7 +49,7 @@ public class StatsServiceTests
         Assert.Equal(2, byStatus["completed"]);
         Assert.Equal(1, byStatus["plan"]);
         Assert.Equal(1, byStatus["watching"]);
-        Assert.False(byStatus.ContainsKey("dropped")); // відсутні статуси не включені
+        Assert.False(byStatus.ContainsKey("dropped")); // Missing statuses are omitted.
 
         var byType = ToCountMap(json.GetProperty("byType"), "type");
         Assert.Equal(2, byType["movie"]);
@@ -68,7 +68,7 @@ public class StatsServiceTests
 
         var json = await ExecuteGetStatsAsync(db);
 
-        // (8 + 9 + 8) / 3 = 8.333… → 8.3; запис без оцінки на середнє не впливає.
+        // (8 + 9 + 8) / 3 = 8.333… → 8.3; an unrated item does not affect the average.
         Assert.Equal(8.3, json.GetProperty("avgRating").GetDouble(), precision: 3);
     }
 
@@ -110,7 +110,7 @@ public class StatsServiceTests
             .Select(g => (Name: g.GetProperty("name").GetString()!, Count: g.GetProperty("count").GetInt32()))
             .ToList();
 
-        // Ліміт 5: Sci-Fi (1) входить, Thriller/Western (1) — ні.
+        // With a limit of five, Sci-Fi (1) is included while Thriller/Western (1) are not.
         Assert.Equal(5, top.Count);
         Assert.Equal(("Action", 3), top[0]);
         Assert.Equal(("Comedy", 2), top[1]);

@@ -10,10 +10,10 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// ErrorHandlingMiddleware: мапіння винятків на контрактні помилки { error, code } —
-/// DuplicateException → 409 MEDIA_DUPLICATE, bad HTTP requests and ArgumentException → 400 VALIDATION_ERROR,
-/// будь-що інше → 500 INTERNAL_ERROR (із логуванням). Вже розпочату відповідь
-/// middleware не перезаписує.
+/// ErrorHandlingMiddleware maps exceptions to contract error responses { error, code }:
+/// DuplicateException → 409 MEDIA_DUPLICATE; bad HTTP requests and ArgumentException → 400 VALIDATION_ERROR;
+/// all other exceptions → 500 INTERNAL_ERROR (and are logged). A response that has already started
+/// is not rewritten by the middleware.
 /// </summary>
 public class ErrorHandlingMiddlewareTests
 {
@@ -89,13 +89,13 @@ public class ErrorHandlingMiddlewareTests
     {
         await using var stream = new MemoryStream();
         var context = new DefaultHttpContext();
-        // DefaultHttpContext не має транспорту, тож WriteAsync/StartAsync самі по собі
-        // не виставляють HasStarted. Емулюємо вже розпочату відповідь підставною фічою;
-        // «вже відправлений» клієнту фрагмент кладемо в потік тіла напряму.
+        // DefaultHttpContext has no transport, so WriteAsync/StartAsync alone
+        // do not set HasStarted. Use a test response feature to simulate a started response;
+        // write the already-sent payload fragment directly to the response stream.
         context.Features.Set<IHttpResponseFeature>(
             new AlwaysStartedResponseFeature { Body = stream });
         stream.Write("partial payload"u8);
-        Assert.True(context.Response.HasStarted); // передумова тесту
+        Assert.True(context.Response.HasStarted); // Test precondition.
 
         var middleware = new ErrorHandlingMiddleware(
             _ => throw new InvalidOperationException("boom"),
@@ -159,13 +159,13 @@ public class ErrorHandlingMiddlewareTests
         return (context.Response.StatusCode, body, context.Response.ContentType ?? string.Empty);
     }
 
-    /// <summary>Відповідь, що вже «почалась»: HasStarted завжди true (емуляція транспорту).</summary>
+    /// <summary>A response feature that always reports HasStarted, simulating a transport.</summary>
     private sealed class AlwaysStartedResponseFeature : HttpResponseFeature
     {
         public override bool HasStarted => true;
     }
 
-    /// <summary>Логер у пам'яті для перевірки, що 500-відповіді журналюються.</summary>
+    /// <summary>In-memory logger used to verify that 500 responses are logged.</summary>
     private sealed class TestLogger<T> : ILogger<T>
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = new();
