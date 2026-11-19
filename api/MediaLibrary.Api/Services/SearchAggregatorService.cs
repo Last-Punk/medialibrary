@@ -3,36 +3,29 @@ using MediaLibrary.Api.Models.Dtos;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Пошук за контрактом GET /api/search: спочатку локальна БД, потім зовнішні каталоги,
-/// інакше — порожній список (бот далі пропонує створити запис вручну).
-/// Порядок фіксований — «БД → TMDB/RAWG», тому локальний запис завжди виграє дедуплікацію
-/// у свого ж зовнішнього близнюка.
+/// Searches the owner's local library first, then the selected external catalogs.
+/// A required catalog failure is propagated so the API can return 503
+/// EXTERNAL_API_UNAVAILABLE, as specified in CONTRACT.md.
 /// </summary>
 public class SearchAggregatorService
 {
-    // Скільки локальних записів віддаємо максимум (стеля контракту для limit).
+    // Maximum number of local items to return (the contract limit cap).
     private const int LocalLimit = 100;
 
     private readonly MediaService _media;
     private readonly TmdbService _tmdb;
     private readonly RawgService _rawg;
-    private readonly ILogger<SearchAggregatorService> _logger;
 
-    public SearchAggregatorService(
-        MediaService media,
-        TmdbService tmdb,
-        RawgService rawg,
-        ILogger<SearchAggregatorService> logger)
+    public SearchAggregatorService(MediaService media, TmdbService tmdb, RawgService rawg)
     {
         _media = media;
         _tmdb = tmdb;
         _rawg = rawg;
-        _logger = logger;
     }
 
     /// <summary>
-    /// type: null — усі джерела; movie/series — TMDB; game — RAWG.
-    /// Помилки зовнішніх API не валять запит — вони лише зменшують результат.
+    /// type: null searches all sources; movie/series use TMDB; game uses RAWG.
+    /// If any selected external catalog is unavailable, the caller returns 503.
     /// </summary>
     public async Task<List<SearchResultDto>> SearchAsync(string query, string? type)
     {
@@ -44,21 +37,50 @@ public class SearchAggregatorService
         var search = query.Trim();
         var typeFilter = NormalizeType(type);
 
-        // 1. Локальна БД першою — вона ж дає fallback, коли зовнішні ключі не налаштовані.
+        // 1. Search the local database first.
         results.AddRange(ToSearchResults(await SearchLocalAsync(search, typeFilter)));
 
-        // 2. TMDB: фільми для movie/без типу, серіали для series/без типу.
+        // 2. TMDB: movies for movie/no type, and TV series for series/no type.
         if (typeFilter is null or "movie")
-            AddUnique(results, await SafeCall(() => _tmdb.SearchMoviesAsync(search), "TMDB movies"));
+            AddUnique(results, await _tmdb.SearchMoviesAsync(search));
 
         if (typeFilter is null or "series")
-            AddUnique(results, await SafeCall(() => _tmdb.SearchSeriesAsync(search), "TMDB series"));
+            AddUnique(results, await _tmdb.SearchSeriesAsync(search));
 
-        // 3. RAWG: ігри для game/без типу.
+        // 3. RAWG: games for game/no type.
         if (typeFilter is null or "game")
-            AddUnique(results, await SafeCall(() => _rawg.SearchGamesAsync(search), "RAWG games"));
+            AddUnique(results, await _rawg.SearchGamesAsync(search));
 
         return results;
+    }
+
+    /// <summary>
+    /// Fetch genre names for a catalog import. TMDB supports movies and series; RAWG supports games.
+    /// Provider failures are propagated as ExternalApiUnavailableException for the contract 503 response.
+    /// </summary>
+    public Task<List<string>> FetchImportGenresAsync(ImportMediaDto dto)
+    {
+        var type = NormalizeType(dto.Type)!;
+        var externalId = (dto.ExternalId ?? string.Empty).Trim();
+        var externalSource = (dto.ExternalSource ?? string.Empty).Trim();
+
+        if (string.Equals(externalSource, TmdbService.Source, StringComparison.OrdinalIgnoreCase))
+        {
+            if (type != "movie" && type != "series")
+                throw new ArgumentException("TMDB imports must have type movie or series");
+
+            return _tmdb.GetGenresAsync(externalId, type);
+        }
+
+        if (string.Equals(externalSource, RawgService.Source, StringComparison.OrdinalIgnoreCase))
+        {
+            if (type != "game")
+                throw new ArgumentException("RAWG imports must have type game");
+
+            return _rawg.GetGenresAsync(externalId);
+        }
+
+        throw new ArgumentException("ExternalSource must be TMDB or RAWG for catalog imports");
     }
 
     private async Task<List<MediaResponseDto>> SearchLocalAsync(string search, string? type)
@@ -76,8 +98,8 @@ public class SearchAggregatorService
 
     /// <summary>
     /// MediaResponseDto → SearchResultDto.
-    /// Ручний запис без ExternalId ідентифікуємо парою ("Manual", id у рядку),
-    /// щоб його можна було показати в пошуку, але не сплутати з результатом TMDB/RAWG.
+    /// Identify a manual item without ExternalId by ("Manual", its string ID),
+    /// so it can appear in search without being confused with a TMDB/RAWG result.
     /// </summary>
     private static IEnumerable<SearchResultDto> ToSearchResults(IEnumerable<MediaResponseDto> items)
     {
@@ -105,8 +127,8 @@ public class SearchAggregatorService
     }
 
     /// <summary>
-    /// Дедуплікація за парою ExternalSource + ExternalId (без урахування регістру).
-    /// Перший збіг лишається — тобто локальний запис перекриває результат TMDB/RAWG.
+    /// Deduplicate by ExternalSource + ExternalId, ignoring case.
+    /// Keep the first match, allowing a local item to override its external catalog match.
     /// </summary>
     private static void AddUnique(List<SearchResultDto> target, IEnumerable<SearchResultDto> candidates)
     {
@@ -136,27 +158,8 @@ public class SearchAggregatorService
     }
 
     /// <summary>
-    /// Зовнішній сервіс сам логує свої проблеми, але на випадок непередбаченого
-    /// винятку страхуємось і тут: пошук має віддати 200 навіть тоді, коли TMDB лежить.
-    /// </summary>
-    private async Task<List<SearchResultDto>> SafeCall(
-        Func<Task<List<SearchResultDto>>> call,
-        string sourceName)
-    {
-        try
-        {
-            return await call();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Search in {Source} failed; continuing with other sources.", sourceName);
-            return new List<SearchResultDto>();
-        }
-    }
-
-    /// <summary>
-    /// "Movie " → "movie"; порожнє → null (шукаємо в усіх джерелах).
-    /// Невалідний тип не ковтаємо — хай ендпоінт віддасть 400 VALIDATION_ERROR.
+    /// Normalize "Movie " to "movie"; map empty input to null (search all sources).
+    /// Do not swallow an invalid type; let the endpoint return 400 VALIDATION_ERROR.
     /// </summary>
     private static string? NormalizeType(string? type)
     {

@@ -7,9 +7,9 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// MediaService.CreateAsync: мапінг CreateMediaDto → MediaItem (trim полів, парсинг
-/// рядкового type у enum, дефолтний status = plan), розв'язання жанрів/тегів через
-/// get-or-create та портова валідація вхідних даних (ArgumentException → 400).
+/// MediaService.CreateAsync maps CreateMediaDto to MediaItem (trims fields and parses
+/// the string type into an enum, defaults status to plan, resolves genres/tags with
+/// get-or-create, and validates inputs (ArgumentException → 400).
 /// </summary>
 public class MediaServiceCreateTests
 {
@@ -17,7 +17,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_MapsDtoToEntity_AndReturnsContractDto()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto
         {
@@ -37,9 +37,9 @@ public class MediaServiceCreateTests
 
         Assert.True(result.Id > 0);
         Assert.Equal("Inception", result.Title);
-        Assert.Equal("Inception", result.OriginalTitle); // fallback на Title
+        Assert.Equal("Inception", result.OriginalTitle); // Falls back to Title.
         Assert.Equal(2010, result.Year);
-        Assert.Equal("movie", result.Type); // контрактний lowercase
+        Assert.Equal("movie", result.Type); // Lowercase value required by the contract.
         Assert.Equal("https://image.tmdb.org/t/p/w500/inception.jpg", result.PosterUrl);
         Assert.Equal("A thief who steals corporate secrets.", result.Overview);
         Assert.Equal(9, result.Rating);
@@ -63,7 +63,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_ParsesTypeCaseInsensitively(string input, string expected)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto { Title = "T", Type = input });
 
@@ -74,7 +74,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_WithoutStatus_DefaultsToPlan()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto
         {
@@ -92,7 +92,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_WithoutGenresAndTags_LeavesCollectionsEmpty()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto { Title = "T", Type = "movie" });
 
@@ -108,7 +108,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_MissingTitle_ThrowsArgumentException(string title)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = title, Type = "movie" };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -123,7 +123,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_MissingType_ThrowsArgumentException(string? type)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = "T", Type = type! };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -137,7 +137,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_WithUnknownType_ThrowsArgumentException(string type)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = "T", Type = type };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -151,7 +151,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_RatingOutOfRange_ThrowsArgumentException(int rating)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = "T", Type = "movie", Rating = rating };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
@@ -165,12 +165,12 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_YearOutOfRange_ThrowsArgumentException(int year)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new CreateMediaDto { Title = "T", Type = "movie", Year = year };
         var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(dto));
 
-        // Повідомлення генерує DataAnnotations RangeAttribute.
+        // The DataAnnotations RangeAttribute generates this message.
         Assert.Contains("Year", ex.Message);
         Assert.Contains("1900", ex.Message);
     }
@@ -181,7 +181,7 @@ public class MediaServiceCreateTests
         using var db = CreateDb();
         db.Genres.Add(new Genre { Name = "Sci-Fi" });
         await db.SaveChangesAsync();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto
         {
@@ -190,7 +190,7 @@ public class MediaServiceCreateTests
             Genres = new List<string> { "SCI-FI", " Drama " }
         });
 
-        // У відповіді назви відсортовані абетково; існуючий жанр зберіг свою назву.
+        // Response names are sorted alphabetically; an existing genre keeps its stored name.
         Assert.Equal(new[] { "Drama", "Sci-Fi" }, result.Genres);
         Assert.Equal(2, await db.Genres.CountAsync());
         Assert.DoesNotContain(await db.Genres.ToListAsync(), g => g.Name == "SCI-FI");
@@ -200,7 +200,7 @@ public class MediaServiceCreateTests
     public async Task CreateAsync_NormalizesTags_DropsEmptyDuplicatesAndTrims()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.CreateAsync(new CreateMediaDto
         {

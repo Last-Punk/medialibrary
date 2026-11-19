@@ -3,6 +3,8 @@ namespace MediaLibrary.Core.Models.Entities;
 public class MediaItem
 {
     public int Id { get; set; }
+    public int OwnerId { get; set; }
+    public User Owner { get; set; } = null!;
     public string Title { get; set; } = string.Empty;
     public string OriginalTitle { get; set; } = string.Empty;
     public int? Year { get; set; }

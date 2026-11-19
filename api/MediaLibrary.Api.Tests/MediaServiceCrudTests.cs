@@ -7,9 +7,9 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// MediaService read/update/delete: мапінг Entity → MediaResponseDto (сортування
-/// жанрів/тегів, lowercase type/status), часткове оновлення (null = без змін),
-/// видалення з каскадом сесій. Відсутній запис → null/false, без винятків.
+/// MediaService read/update/delete: maps entities to MediaResponseDto (sorts
+/// genres/tags, uses lowercase type/status values, applies partial updates (null = unchanged),
+/// and deletes sessions with their media item. Missing records return null/false without exceptions.
 /// </summary>
 public class MediaServiceCrudTests
 {
@@ -18,7 +18,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.GetByIdAsync(item.Id);
 
@@ -32,7 +32,7 @@ public class MediaServiceCrudTests
         Assert.Equal("76341", result.ExternalId);
         Assert.Equal("TMDB", result.ExternalSource);
         Assert.False(result.IsManualEntry);
-        // У відповіді жанри й теги відсортовані абетково, незалежно від порядку збереження.
+        // Genres and tags are alphabetically sorted in the response, regardless of storage order.
         Assert.Equal(new[] { "Action", "Thriller" }, result.Genres);
         Assert.Equal(new[] { "favorite", "rewatch" }, result.Tags);
         Assert.Equal(new DateTime(2026, 10, 15, 10, 30, 0, DateTimeKind.Utc), result.CreatedAt);
@@ -44,7 +44,7 @@ public class MediaServiceCrudTests
     public async Task GetByIdAsync_WhenMissing_ReturnsNull()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         Assert.Null(await service.GetByIdAsync(999));
     }
@@ -54,7 +54,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var updated = await service.UpdateAsync(item.Id, new UpdateMediaDto
         {
@@ -64,12 +64,12 @@ public class MediaServiceCrudTests
         });
 
         Assert.NotNull(updated);
-        // Поля, не передані в DTO, лишаються без змін.
+        // Fields omitted from the DTO remain unchanged.
         Assert.Equal("Mad Max: Fury Road", updated.Title);
         Assert.Equal(2015, updated.Year);
         Assert.Equal("movie", updated.Type);
         Assert.Equal(new[] { "Action", "Thriller" }, updated.Genres);
-        // Передані поля застосовані.
+        // Supplied fields are applied.
         Assert.Equal(10, updated.Rating);
         Assert.Equal("completed", updated.Status);
         Assert.Equal("finished", updated.Notes);
@@ -83,7 +83,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var updated = await service.UpdateAsync(item.Id, new UpdateMediaDto
         {
@@ -106,7 +106,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var updated = await service.UpdateAsync(item.Id, new UpdateMediaDto
         {
@@ -128,7 +128,7 @@ public class MediaServiceCrudTests
     public async Task UpdateAsync_WhenMissing_ReturnsNullWithoutThrowing()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.UpdateAsync(999, new UpdateMediaDto { Rating = 5 });
 
@@ -140,7 +140,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(
             () => service.UpdateAsync(item.Id, new UpdateMediaDto { Title = "   " }));
@@ -153,7 +153,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(
             () => service.UpdateAsync(item.Id, new UpdateMediaDto { Status = "paused" }));
@@ -168,7 +168,7 @@ public class MediaServiceCrudTests
     {
         using var db = CreateDb();
         var item = SeedMovie(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(
             () => service.UpdateAsync(item.Id, new UpdateMediaDto { Rating = rating }));
@@ -188,9 +188,9 @@ public class MediaServiceCrudTests
         });
         await db.SaveChangesAsync();
 
-        var service = new MediaService(db);
-        // Завантажуємо залежні сесії в контекст, щоб каскад спрацював детерміновано
-        // (InMemory не має FK-обмежень рівня СУБД, на відміну від production-провайдерів).
+        var service = new MediaService(db, TestCurrentUser.Default);
+        // Load dependent sessions into the context so cascade behavior is deterministic
+        // (InMemory does not enforce database-level foreign keys like production providers do).
         _ = await db.ViewingSessions.ToListAsync();
 
         var deleted = await service.DeleteAsync(item.Id);
@@ -204,7 +204,7 @@ public class MediaServiceCrudTests
     public async Task DeleteAsync_WhenMissing_ReturnsFalse()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         Assert.False(await service.DeleteAsync(999));
     }
@@ -213,6 +213,7 @@ public class MediaServiceCrudTests
     {
         var item = new MediaItem
         {
+            OwnerId = TestCurrentUser.Default.UserId,
             Title = "Mad Max: Fury Road",
             OriginalTitle = "Mad Max: Fury Road",
             Year = 2015,

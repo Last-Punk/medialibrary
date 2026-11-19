@@ -90,6 +90,9 @@ namespace MediaLibrary.Migrations.Sqlite.Migrations
                     b.Property<string>("Overview")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("OwnerId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("PosterUrl")
                         .HasColumnType("TEXT");
 
@@ -114,6 +117,11 @@ namespace MediaLibrary.Migrations.Sqlite.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("OwnerId", "Status");
+
+                    b.HasIndex("OwnerId", "ExternalSource", "ExternalId")
+                        .IsUnique();
+
                     b.ToTable("MediaItems");
                 });
 
@@ -130,6 +138,35 @@ namespace MediaLibrary.Migrations.Sqlite.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Tags");
+                });
+
+            modelBuilder.Entity("MediaLibrary.Core.Models.Entities.User", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FirstName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("TelegramUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Username")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TelegramUserId")
+                        .IsUnique();
+
+                    b.ToTable("Users");
                 });
 
             modelBuilder.Entity("MediaLibrary.Core.Models.Entities.ViewingSession", b =>
@@ -187,6 +224,17 @@ namespace MediaLibrary.Migrations.Sqlite.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("MediaLibrary.Core.Models.Entities.MediaItem", b =>
+                {
+                    b.HasOne("MediaLibrary.Core.Models.Entities.User", "Owner")
+                        .WithMany("MediaItems")
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Owner");
+                });
+
             modelBuilder.Entity("MediaLibrary.Core.Models.Entities.ViewingSession", b =>
                 {
                     b.HasOne("MediaLibrary.Core.Models.Entities.MediaItem", "MediaItem")
@@ -201,6 +249,11 @@ namespace MediaLibrary.Migrations.Sqlite.Migrations
             modelBuilder.Entity("MediaLibrary.Core.Models.Entities.MediaItem", b =>
                 {
                     b.Navigation("Sessions");
+                });
+
+            modelBuilder.Entity("MediaLibrary.Core.Models.Entities.User", b =>
+                {
+                    b.Navigation("MediaItems");
                 });
 #pragma warning restore 612, 618
         }

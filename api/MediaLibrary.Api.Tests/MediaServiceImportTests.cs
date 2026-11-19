@@ -7,9 +7,9 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// MediaService.ImportFromExternalAsync: мапінг зовнішнього результату (POST /api/search/import),
-/// захист від дублікатів за ExternalId + ExternalSource (DuplicateException → 409 MEDIA_DUPLICATE)
-/// та явна DataAnnotations-валідація DTO (ValidateDto).
+/// MediaService.ImportFromExternalAsync maps external results (POST /api/search/import),
+/// prevents duplicates by ExternalId + ExternalSource (DuplicateException → 409 MEDIA_DUPLICATE),
+/// and explicitly validates DTO DataAnnotations with ValidateDto.
 /// </summary>
 public class MediaServiceImportTests
 {
@@ -17,7 +17,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_MapsDto_AndMarksRecordAsExternal()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = new ImportMediaDto
         {
@@ -34,25 +34,86 @@ public class MediaServiceImportTests
         var result = await service.ImportFromExternalAsync(dto);
 
         Assert.True(result.Id > 0);
-        Assert.Equal("27205", result.ExternalId); // ідентифікатор нормалізується (trim)
+        Assert.Equal("27205", result.ExternalId); // The identifier is trimmed.
         Assert.Equal("TMDB", result.ExternalSource);
         Assert.Equal("Inception", result.Title);
-        Assert.Equal("Inception", result.OriginalTitle); // fallback на Title
+        Assert.Equal("Inception", result.OriginalTitle); // Falls back to Title.
         Assert.Equal(2010, result.Year);
         Assert.Equal("movie", result.Type);
         Assert.False(result.IsManualEntry);
-        Assert.Null(result.Rating); // імпорт не проставляє оцінку
+        Assert.Null(result.Rating); // Imports do not set a rating.
         Assert.Equal("plan", result.Status);
-        Assert.Empty(result.Tags); // імпорт не приймає теги
+        Assert.Empty(result.Tags); // Imports do not accept tags.
         Assert.Equal(new[] { "Sci-Fi", "Thriller" }, result.Genres);
         Assert.Equal(DateTimeKind.Utc, result.CreatedAt.Kind);
+    }
+
+    [Fact]
+    public async Task ImportAsync_WhenGenresAreOmitted_FetchesThemBeforeSaving()
+    {
+        using var db = CreateDb();
+        var service = new MediaService(db, TestCurrentUser.Default);
+        var fetchCalled = false;
+
+        var result = await service.ImportFromExternalAsync(
+            ValidDto(),
+            request =>
+            {
+                fetchCalled = true;
+                Assert.Equal("27205", request.ExternalId);
+                return Task.FromResult(new List<string> { "Sci-Fi", "Thriller" });
+            });
+
+        Assert.True(fetchCalled);
+        Assert.Equal(new[] { "Sci-Fi", "Thriller" }, result.Genres);
+    }
+
+    [Fact]
+    public async Task ImportAsync_WhenGenresAreSupplied_DoesNotFetchThemAgain()
+    {
+        using var db = CreateDb();
+        var service = new MediaService(db, TestCurrentUser.Default);
+        var dto = ValidDto();
+        dto.Genres = new List<string> { "Drama" };
+        var fetchCalled = false;
+
+        var result = await service.ImportFromExternalAsync(
+            dto,
+            _ =>
+            {
+                fetchCalled = true;
+                return Task.FromResult(new List<string> { "Sci-Fi" });
+            });
+
+        Assert.False(fetchCalled);
+        Assert.Equal(new[] { "Drama" }, result.Genres);
+    }
+
+    [Fact]
+    public async Task ImportAsync_DuplicateIsRejectedBeforeFetchingGenres()
+    {
+        using var db = CreateDb();
+        var service = new MediaService(db, TestCurrentUser.Default);
+        await service.ImportFromExternalAsync(ValidDto());
+        var fetchCalled = false;
+
+        await Assert.ThrowsAsync<DuplicateException>(() =>
+            service.ImportFromExternalAsync(
+                ValidDto(),
+                _ =>
+                {
+                    fetchCalled = true;
+                    return Task.FromResult(new List<string> { "Drama" });
+                }));
+
+        Assert.False(fetchCalled);
     }
 
     [Fact]
     public async Task ImportAsync_DuplicateExternalIdAndSource_ThrowsDuplicateException()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         await service.ImportFromExternalAsync(ValidDto());
 
         var ex = await Assert.ThrowsAsync<DuplicateException>(
@@ -66,7 +127,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_DuplicateCheck_IgnoresExternalSourceCase()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         await service.ImportFromExternalAsync(ValidDto(externalSource: "TMDB"));
 
         await Assert.ThrowsAsync<DuplicateException>(
@@ -79,10 +140,10 @@ public class MediaServiceImportTests
     public async Task ImportAsync_SameExternalIdFromAnotherSource_IsAllowed()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         await service.ImportFromExternalAsync(ValidDto(externalSource: "TMDB"));
 
-        var second = await service.ImportFromExternalAsync(ValidDto(externalSource: "RAWG"));
+        var second = await service.ImportFromExternalAsync(ValidDto(externalSource: "RAWG", type: "game"));
 
         Assert.Equal("RAWG", second.ExternalSource);
         Assert.Equal(2, await db.MediaItems.CountAsync());
@@ -91,9 +152,9 @@ public class MediaServiceImportTests
     [Fact]
     public async Task ImportAsync_ManualCopyWithSameTitle_DoesNotBlockImport()
     {
-        // Ручні записи мають ExternalId = null, тож не спрацьовують у перевірці дублікатів.
+        // Manual items have ExternalId = null, so they do not trigger duplicate checks.
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         await service.CreateAsync(new CreateMediaDto { Title = "Manual copy", Type = "movie" });
 
         var imported = await service.ImportFromExternalAsync(ValidDto());
@@ -108,7 +169,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_MissingExternalId_ThrowsArgumentException(string externalId)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.ExternalId = externalId;
@@ -125,7 +186,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_MissingExternalSource_ThrowsArgumentException(string externalSource)
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.ExternalSource = externalSource;
@@ -140,7 +201,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_MissingTitle_ThrowsArgumentException()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.Title = "";
@@ -155,7 +216,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_YearOutOfRange_ThrowsArgumentException_FromDtoValidation()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.Year = 1800;
@@ -171,7 +232,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_WithUnknownType_ThrowsArgumentException()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var dto = ValidDto();
         dto.Type = "documentary";
@@ -186,7 +247,7 @@ public class MediaServiceImportTests
     public async Task ImportAsync_ReusesGenresAcrossImports()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var first = ValidDto(externalId: "27205");
         first.Genres = new List<string> { "Sci-Fi" };
@@ -202,14 +263,15 @@ public class MediaServiceImportTests
 
     private static ImportMediaDto ValidDto(
         string externalId = "27205",
-        string externalSource = "TMDB") =>
+        string externalSource = "TMDB",
+        string type = "movie") =>
         new()
         {
             ExternalId = externalId,
             ExternalSource = externalSource,
             Title = "Inception",
             Year = 2010,
-            Type = "movie"
+            Type = type
         };
 
     private static AppDbContext CreateDb() => new(

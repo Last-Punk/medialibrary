@@ -10,11 +10,11 @@ using MediaLibrary.Core.Models.Entities;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// GET /api/stats: агреговані лічильники за статусом/типом (контрактні lowercase-ключі),
-/// середній рейтинг лише для non-null оцінок (округлення до 1 знака; 0, коли оцінок немає),
-/// topGenres — щонайбільше п'ять найвживаніших. Порожня БД дає валідну нульову відповідь.
-/// Агрегація зібрана в обробнику StatsEndpoints, тож тести викликають його напряму
-/// та перевіряють фактичний JSON (як його бачить клієнт API).
+/// GET /api/stats: aggregates counts by status/type (contract lowercase keys),
+/// averages only non-null ratings (rounded to one decimal place; 0 when no ratings exist),
+/// and returns up to five topGenres. An empty database produces a valid zero-valued response.
+/// Aggregation is implemented in StatsEndpoints, so tests call the handler directly
+/// and inspect the actual JSON returned to an API client.
 /// </summary>
 public class StatsServiceTests
 {
@@ -49,7 +49,7 @@ public class StatsServiceTests
         Assert.Equal(2, byStatus["completed"]);
         Assert.Equal(1, byStatus["plan"]);
         Assert.Equal(1, byStatus["watching"]);
-        Assert.False(byStatus.ContainsKey("dropped")); // відсутні статуси не включені
+        Assert.False(byStatus.ContainsKey("dropped")); // Missing statuses are omitted.
 
         var byType = ToCountMap(json.GetProperty("byType"), "type");
         Assert.Equal(2, byType["movie"]);
@@ -68,7 +68,7 @@ public class StatsServiceTests
 
         var json = await ExecuteGetStatsAsync(db);
 
-        // (8 + 9 + 8) / 3 = 8.333… → 8.3; запис без оцінки на середнє не впливає.
+        // (8 + 9 + 8) / 3 = 8.333… → 8.3; an unrated item does not affect the average.
         Assert.Equal(8.3, json.GetProperty("avgRating").GetDouble(), precision: 3);
     }
 
@@ -110,7 +110,7 @@ public class StatsServiceTests
             .Select(g => (Name: g.GetProperty("name").GetString()!, Count: g.GetProperty("count").GetInt32()))
             .ToList();
 
-        // Ліміт 5: Sci-Fi (1) входить, Thriller/Western (1) — ні.
+        // With a limit of five, Sci-Fi (1) is included while Thriller/Western (1) are not.
         Assert.Equal(5, top.Count);
         Assert.Equal(("Action", 3), top[0]);
         Assert.Equal(("Comedy", 2), top[1]);
@@ -119,16 +119,54 @@ public class StatsServiceTests
         Assert.Equal(("Sci-Fi", 1), top[4]);
     }
 
+    [Fact]
+    public async Task GetStats_OnlyCountsAuthenticatedOwnersLibrary()
+    {
+        using var db = CreateDb();
+        SeedItem(db, "Alice rated", status: MediaStatus.Completed, rating: 10, ownerId: 101);
+        SeedItem(db, "Alice unrated", type: MediaType.Series, ownerId: 101);
+        SeedItem(db, "Bob rated", status: MediaStatus.Dropped, rating: 1, ownerId: 202);
+
+        var json = await ExecuteGetStatsAsync(db, new TestCurrentUser(101));
+
+        Assert.Equal(2, json.GetProperty("total").GetInt32());
+        Assert.Equal(10, json.GetProperty("avgRating").GetDouble());
+        Assert.Equal(2, json.GetProperty("byStatus").EnumerateArray().Sum(row => row.GetProperty("count").GetInt32()));
+        Assert.Equal(2, json.GetProperty("byType").EnumerateArray().Sum(row => row.GetProperty("count").GetInt32()));
+        Assert.DoesNotContain(
+            json.GetProperty("byStatus").EnumerateArray(),
+            row => row.GetProperty("status").GetString() == "dropped");
+    }
+
+    [Fact]
+    public async Task GetStats_TopGenresDoesNotRevealGenresUsedOnlyByAnotherOwner()
+    {
+        using var db = CreateDb();
+        var sharedGenre = new Genre { Name = "Drama" };
+        var privateGenre = new Genre { Name = "Secret Genre" };
+        SeedItem(db, "Alice", genres: new[] { sharedGenre }, ownerId: 101);
+        SeedItem(db, "Bob", genres: new[] { privateGenre }, ownerId: 202);
+
+        var json = await ExecuteGetStatsAsync(db, new TestCurrentUser(101));
+
+        var topGenres = json.GetProperty("topGenres").EnumerateArray()
+            .Select(row => row.GetProperty("name").GetString())
+            .ToArray();
+        Assert.Equal(new[] { "Drama" }, topGenres);
+    }
+
     private static MediaItem SeedItem(
         AppDbContext db,
         string title,
         MediaType type = MediaType.Movie,
         MediaStatus status = MediaStatus.Plan,
         int? rating = null,
-        IEnumerable<Genre>? genres = null)
+        IEnumerable<Genre>? genres = null,
+        int ownerId = 1)
     {
         var item = new MediaItem
         {
+            OwnerId = ownerId,
             Title = title,
             OriginalTitle = title,
             Type = type,
@@ -151,12 +189,14 @@ public class StatsServiceTests
         return map;
     }
 
-    private static async Task<JsonElement> ExecuteGetStatsAsync(AppDbContext db)
+    private static async Task<JsonElement> ExecuteGetStatsAsync(
+        AppDbContext db,
+        TestCurrentUser? currentUser = null)
     {
         var handler = typeof(StatsEndpoints).GetMethod("GetStats", BindingFlags.NonPublic | BindingFlags.Static)
             ?? throw new InvalidOperationException("StatsEndpoints.GetStats not found.");
 
-        var result = await (Task<IResult>)handler.Invoke(null, new object[] { db })!;
+        var result = await (Task<IResult>)handler.Invoke(null, new object[] { db, currentUser ?? TestCurrentUser.Default })!;
         return await ExecuteJsonAsync(result);
     }
 

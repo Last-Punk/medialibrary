@@ -7,9 +7,9 @@ using Microsoft.EntityFrameworkCore;
 namespace MediaLibrary.Api.Tests;
 
 /// <summary>
-/// Сесії перегляду (/api/media/{id}/sessions): читання відсортоване за датою
-/// (новіші перші), створення за замовчуванням бере поточний UTC-час, коли Date
-/// не передано. Відсутнє медіа → null (ендпоінт мапить у 404 MEDIA_NOT_FOUND).
+/// Viewing sessions (/api/media/{id}/sessions): results are sorted by date
+/// (newest first); creation uses the current UTC time when Date
+/// is omitted. Missing media returns null (the endpoint maps it to 404 MEDIA_NOT_FOUND).
 /// </summary>
 public class MediaServiceSessionsTests
 {
@@ -17,7 +17,7 @@ public class MediaServiceSessionsTests
     public async Task GetSessionsAsync_WhenMediaMissing_ReturnsNull()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         Assert.Null(await service.GetSessionsAsync(999));
     }
@@ -34,7 +34,7 @@ public class MediaServiceSessionsTests
         db.ViewingSessions.AddRange(firstDay, latestDay, tieEarlier, tieLater);
         await db.SaveChangesAsync();
 
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         var sessions = await service.GetSessionsAsync(item.Id);
 
         Assert.NotNull(sessions);
@@ -48,7 +48,7 @@ public class MediaServiceSessionsTests
     {
         using var db = CreateDb();
         var item = SeedItem(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var sessions = await service.GetSessionsAsync(item.Id);
 
@@ -67,7 +67,7 @@ public class MediaServiceSessionsTests
             Session(other.Id, new DateTime(2026, 11, 2, 20, 0, 0, DateTimeKind.Utc)));
         await db.SaveChangesAsync();
 
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         var sessions = await service.GetSessionsAsync(item.Id);
 
         Assert.NotNull(sessions);
@@ -79,7 +79,7 @@ public class MediaServiceSessionsTests
     public async Task AddSessionAsync_WhenMediaMissing_ReturnsNull()
     {
         using var db = CreateDb();
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var result = await service.AddSessionAsync(999, new CreateViewingSessionDto());
 
@@ -92,7 +92,7 @@ public class MediaServiceSessionsTests
     {
         using var db = CreateDb();
         var item = SeedItem(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var before = DateTime.UtcNow.AddSeconds(-5);
         var result = await service.AddSessionAsync(item.Id, new CreateViewingSessionDto
@@ -116,7 +116,7 @@ public class MediaServiceSessionsTests
     {
         using var db = CreateDb();
         var item = SeedItem(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
         var provided = new DateTime(2026, 10, 15, 20, 0, 0, DateTimeKind.Unspecified);
 
         var result = await service.AddSessionAsync(item.Id, new CreateViewingSessionDto
@@ -126,7 +126,7 @@ public class MediaServiceSessionsTests
 
         Assert.NotNull(result);
         Assert.Equal(provided, result.Date);
-        // Kind = Utc гарантує суфікс Z у JSON-відповіді (ISO 8601 за контрактом).
+        // Kind = Utc ensures the JSON response uses the contract ISO 8601 Z suffix.
         Assert.Equal(DateTimeKind.Utc, result.Date.Kind);
     }
 
@@ -135,7 +135,7 @@ public class MediaServiceSessionsTests
     {
         using var db = CreateDb();
         var item = SeedItem(db);
-        var service = new MediaService(db);
+        var service = new MediaService(db, TestCurrentUser.Default);
 
         var trimmed = await service.AddSessionAsync(item.Id, new CreateViewingSessionDto
         {
@@ -161,6 +161,7 @@ public class MediaServiceSessionsTests
     {
         var item = new MediaItem
         {
+            OwnerId = TestCurrentUser.Default.UserId,
             Title = title,
             OriginalTitle = title,
             Type = MediaType.Series,

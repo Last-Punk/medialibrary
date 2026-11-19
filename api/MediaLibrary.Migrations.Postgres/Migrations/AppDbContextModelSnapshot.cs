@@ -99,6 +99,9 @@ namespace MediaLibrary.Migrations.Postgres.Migrations
                     b.Property<string>("Overview")
                         .HasColumnType("text");
 
+                    b.Property<int>("OwnerId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("PosterUrl")
                         .HasColumnType("text");
 
@@ -123,6 +126,11 @@ namespace MediaLibrary.Migrations.Postgres.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("OwnerId", "Status");
+
+                    b.HasIndex("OwnerId", "ExternalSource", "ExternalId")
+                        .IsUnique();
+
                     b.ToTable("MediaItems");
                 });
 
@@ -141,6 +149,37 @@ namespace MediaLibrary.Migrations.Postgres.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Tags");
+                });
+
+            modelBuilder.Entity("MediaLibrary.Core.Models.Entities.User", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FirstName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("TelegramUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Username")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TelegramUserId")
+                        .IsUnique();
+
+                    b.ToTable("Users");
                 });
 
             modelBuilder.Entity("MediaLibrary.Core.Models.Entities.ViewingSession", b =>
@@ -200,6 +239,17 @@ namespace MediaLibrary.Migrations.Postgres.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("MediaLibrary.Core.Models.Entities.MediaItem", b =>
+                {
+                    b.HasOne("MediaLibrary.Core.Models.Entities.User", "Owner")
+                        .WithMany("MediaItems")
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Owner");
+                });
+
             modelBuilder.Entity("MediaLibrary.Core.Models.Entities.ViewingSession", b =>
                 {
                     b.HasOne("MediaLibrary.Core.Models.Entities.MediaItem", "MediaItem")
@@ -214,6 +264,11 @@ namespace MediaLibrary.Migrations.Postgres.Migrations
             modelBuilder.Entity("MediaLibrary.Core.Models.Entities.MediaItem", b =>
                 {
                     b.Navigation("Sessions");
+                });
+
+            modelBuilder.Entity("MediaLibrary.Core.Models.Entities.User", b =>
+                {
+                    b.Navigation("MediaItems");
                 });
 #pragma warning restore 612, 618
         }
