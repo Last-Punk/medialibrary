@@ -5,6 +5,71 @@
     "version": "1.0"
   },
   "paths": {
+    "/api/auth/telegram": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Authenticate a Telegram Web App user",
+        "description": "Validates Telegram Web App initData and returns the user's API JWT.",
+        "operationId": "AuthenticateTelegram",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramAuthRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/auth/bot": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Authenticate a Telegram user through the trusted bot server",
+        "description": "Requires the private X-Bot-Api-Key header and a Telegram user ID from a verified Telegram update.",
+        "operationId": "AuthenticateBotServerUser",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotAuthRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "429": {
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BotApiKey": [ ]
+          }
+        ]
+      }
+    },
     "/api/genres": {
       "get": {
         "tags": [
@@ -14,7 +79,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       }
     },
     "/api/media": {
@@ -62,7 +132,6 @@
           {
             "name": "Offset",
             "in": "query",
-            "required": true,
             "schema": {
               "type": "integer",
               "format": "int32"
@@ -71,7 +140,6 @@
           {
             "name": "Limit",
             "in": "query",
-            "required": true,
             "schema": {
               "type": "integer",
               "format": "int32"
@@ -82,7 +150,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -102,7 +175,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       }
     },
     "/api/media/{id}": {
@@ -125,7 +203,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -156,7 +239,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       },
       "delete": {
         "tags": [
@@ -177,7 +265,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       }
     },
     "/api/media/{id}/sessions": {
@@ -200,7 +293,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -231,7 +329,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       }
     },
     "/api/search": {
@@ -259,7 +362,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       }
     },
     "/api/search/import": {
@@ -281,7 +389,12 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       }
     },
     "/api/stats": {
@@ -293,12 +406,27 @@
           "200": {
             "description": "OK"
           }
-        }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
       }
     }
   },
   "components": {
     "schemas": {
+      "BotAuthRequest": {
+        "type": "object",
+        "properties": {
+          "telegramUserId": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateMediaDto": {
         "required": [
           "title"
@@ -441,6 +569,16 @@
         },
         "additionalProperties": false
       },
+      "TelegramAuthRequest": {
+        "type": "object",
+        "properties": {
+          "initData": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "UpdateMediaDto": {
         "type": "object",
         "properties": {
@@ -507,9 +645,26 @@
         },
         "additionalProperties": false
       }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "description": "Paste the user JWT returned by an API authentication endpoint.",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "BotApiKey": {
+        "type": "apiKey",
+        "description": "Server-to-server credential for the trusted Telegram bot service.",
+        "name": "X-Bot-Api-Key",
+        "in": "header"
+      }
     }
   },
   "tags": [
+    {
+      "name": "Auth"
+    },
     {
       "name": "Genres"
     },
