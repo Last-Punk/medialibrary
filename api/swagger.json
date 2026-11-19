@@ -359,8 +359,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK"
+          "503": {
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -386,8 +386,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "OK"
+          "503": {
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -401,6 +401,23 @@
       "get": {
         "tags": [
           "Stats"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "Bearer": [ ]
+          }
+        ]
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "tags": [
+          "Tags"
         ],
         "responses": {
           "200": {
@@ -676,6 +693,9 @@
     },
     {
       "name": "Stats"
+    },
+    {
+      "name": "Tags"
     }
   ]
 }
