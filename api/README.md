@@ -1,6 +1,6 @@
 # MediaLibrary API
 
-The REST API for a personal library of movies, TV series, and games. It provides Telegram-based sign-in, owner-scoped library operations, catalog search through TMDB and RAWG, viewing sessions, genres, and statistics. The API contract is documented in [`../CONTRACT.md`](../CONTRACT.md).
+The REST API for a personal library of movies, TV series, and games. It provides Telegram-based sign-in, owner-scoped library operations, catalog search through TMDB and RAWG, viewing sessions, genres, tags, and statistics. The API contract is documented in [`../CONTRACT.md`](../CONTRACT.md).
 
 ## Technology
 
@@ -14,7 +14,7 @@ The REST API for a personal library of movies, TV series, and games. It provides
 
 - .NET 9 SDK
 - OpenSSL if you want to generate random local secrets with the commands below
-- Optional: `dotnet-ef` for creating or applying migrations (`dotnet tool install --global dotnet-ef`)
+- Optional: EF Core 9 tooling for creating or applying migrations (`dotnet tool install --global dotnet-ef --version 9.0.0`)
 
 ## Local development
 
@@ -35,14 +35,16 @@ dotnet user-secrets set "Telegram:BotToken" "<token from BotFather>"
 dotnet run --launch-profile http
 ```
 
-The Development HTTP profile listens on `http://localhost:5021`. Open Swagger UI at [`http://localhost:5021/swagger`](http://localhost:5021/swagger); the OpenAPI document is available at `/swagger/v1/swagger.json`. A checked-in snapshot is available at [`./swagger.json`](./swagger.json).
+The Development HTTP profile listens on `http://localhost:5021`. Open Swagger UI at [`http://localhost:5021/swagger`](http://localhost:5021/swagger); the OpenAPI document is available at `/swagger/v1/swagger.json`. The checked-in [`swagger.json`](./swagger.json) is a generated snapshot, not the source of truth. Regenerate it after endpoint, response-status, or security metadata changes and before release.
 
-The Development database uses SQLite (`Data Source=medialibrary.db`). The API applies the active provider's existing migrations automatically at startup. **Do not run `dotnet ef database update` as part of normal local setup.** If a schema change requires a new migration, create and apply it deliberately; for SQLite, from `api/MediaLibrary.Api`:
+The Development database uses SQLite (`Data Source=medialibrary.db`). The API applies the active provider's existing migrations automatically at startup. **Do not run `dotnet ef database update` as part of normal local setup.** If a schema change requires a new migration, create and apply it deliberately. The design-time factory selects its provider from `DOTNET_ENVIRONMENT` first, then `ASPNETCORE_ENVIRONMENT`, so set both when generating or applying migrations. From `api/MediaLibrary.Api`, use these commands for SQLite:
 
 ```bash
-dotnet ef migrations add <MigrationName> --project ../MediaLibrary.Migrations.Sqlite --startup-project .
-dotnet ef database update --project ../MediaLibrary.Migrations.Sqlite --startup-project .
+DOTNET_ENVIRONMENT=Development ASPNETCORE_ENVIRONMENT=Development dotnet ef migrations add <MigrationName> --project ../MediaLibrary.Migrations.Sqlite --startup-project .
+DOTNET_ENVIRONMENT=Development ASPNETCORE_ENVIRONMENT=Development dotnet ef database update --project ../MediaLibrary.Migrations.Sqlite --startup-project .
 ```
+
+For PostgreSQL migrations, set both variables to `Production`, target `../MediaLibrary.Migrations.Postgres`, and provide `ConnectionStrings__Default` when applying them.
 
 The API contract lists `http://localhost:5000` as its development base URL. To use that port instead of the launch profile's `5021`, run the API with `dotnet run --urls http://localhost:5000`.
 
@@ -70,12 +72,13 @@ See [Authentication and ownership](./AUTHENTICATION.md) for request examples, se
 | `DELETE` | `/api/media/{id}` | Delete an item and its viewing sessions | `204` / `404` |
 | `GET` | `/api/media/{id}/sessions` | List viewing sessions, newest first | `200 { sessions }` / `404` |
 | `POST` | `/api/media/{id}/sessions` | Add a viewing session; date defaults to the current UTC time | `201` / `404` |
-| `GET` | `/api/search?query=…&type=…` | Search the local library and external catalogs | `200 { results }` / `400` |
-| `POST` | `/api/search/import` | Import a catalog result into the caller's library | `201` / `400` / `409` |
-| `GET` | `/api/genres` | List the genre dictionary, sorted by name | `200 { genres }` |
+| `GET` | `/api/search?query=…&type=…` | Search the local library and external catalogs | `200 { results }` / `400` / `503` |
+| `POST` | `/api/search/import` | Import a catalog result into the caller's library; fetches genres when omitted | `201` / `400` / `409` / `503` |
+| `GET` | `/api/genres` | List genres used in the caller's library, sorted by name | `200 { genres }` |
+| `GET` | `/api/tags` | List tags used in the caller's library, sorted by name | `200 { tags }` |
 | `GET` | `/api/stats` | Get owner-scoped totals, status/type counts, average rating, and top genres | `200` |
 
-Search checks the local database first, followed by TMDB for movies and series and RAWG for games. Results are deduplicated by `ExternalSource + ExternalId` without case sensitivity; a local match takes priority over its external catalog match. When provider keys are absent or a catalog request fails, the API still returns local results.
+Search checks the local database first, followed by TMDB for movies and series and RAWG for games. Results are deduplicated by `ExternalSource + ExternalId` without case sensitivity; a local match takes priority over its external catalog match. If any selected provider is unavailable or its API key is missing, the request returns `503 EXTERNAL_API_UNAVAILABLE` instead of partial results. When an import request omits genres or supplies an empty list, the API fetches them from the matching catalog before saving the item.
 
 ## Request examples
 
@@ -125,14 +128,14 @@ Values can be provided through `appsettings*.json`, .NET User Secrets, or enviro
 | `Telegram:BotToken` | `Telegram__BotToken` | Used to validate Web App `initData`; required in Production. |
 | `Telegram:InitDataMaxAgeMinutes` | `Telegram__InitDataMaxAgeMinutes` | Defaults to 1,440 minutes; allowed range is 1–10,080 minutes. |
 | `BotAuth:ApiKey` | `BotAuth__ApiKey` | Enables bot-server sign-in; required in Production, at least 32 UTF-8 bytes, and distinct from `Jwt:Secret`. |
-| `Tmdb:ApiKey` | `Tmdb__ApiKey` | Optional TMDB key for movie and TV search. Without it, external TMDB searches are skipped. |
+| `Tmdb:ApiKey` | `Tmdb__ApiKey` | Optional configuration; required for TMDB movie/TV search and genre imports. If missing, requests that use TMDB return `503 EXTERNAL_API_UNAVAILABLE`. |
 | `Tmdb:BaseUrl` | `Tmdb__BaseUrl` | Defaults to `https://api.themoviedb.org/3/`. |
 | `Tmdb:ImageBaseUrl` | `Tmdb__ImageBaseUrl` | Defaults to `https://image.tmdb.org/t/p/w500`. |
-| `Rawg:ApiKey` | `Rawg__ApiKey` | Optional RAWG key for game search. Without it, external RAWG searches are skipped. |
+| `Rawg:ApiKey` | `Rawg__ApiKey` | Optional configuration; required for RAWG game search and genre imports. If missing, requests that use RAWG return `503 EXTERNAL_API_UNAVAILABLE`. |
 | `Rawg:BaseUrl` | `Rawg__BaseUrl` | Defaults to `https://api.rawg.io/api/`. |
 | `ASPNETCORE_ENVIRONMENT` | — | `Development` selects SQLite; `Production` selects PostgreSQL. |
 
-In Development, searching works without TMDB or RAWG keys and uses the local library. External provider failures are logged as warnings and do not fail the overall search request.
+The application can start in Development without TMDB or RAWG keys, but search and genre imports that require an unconfigured or unavailable catalog return `503 EXTERNAL_API_UNAVAILABLE`. Local library CRUD and statistics remain available.
 
 ## Rate limits
 
@@ -159,6 +162,7 @@ The permit limits and window durations are configurable. Rate-limit rejections r
 | `409` | `MEDIA_DUPLICATE` | The caller already has the same external item |
 | `429` | `RATE_LIMITED` | A configured request limit was exceeded |
 | `500` | `INTERNAL_ERROR` | Unexpected server error; details are logged, not returned |
+| `503` | `EXTERNAL_API_UNAVAILABLE` | TMDB or RAWG is unavailable or its API key is not configured |
 | `503` | `BOT_AUTH_UNAVAILABLE` | Bot-server sign-in is disabled because its Development key is not configured |
 
 ## Architecture

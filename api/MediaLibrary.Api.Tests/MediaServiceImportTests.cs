@@ -49,6 +49,67 @@ public class MediaServiceImportTests
     }
 
     [Fact]
+    public async Task ImportAsync_WhenGenresAreOmitted_FetchesThemBeforeSaving()
+    {
+        using var db = CreateDb();
+        var service = new MediaService(db, TestCurrentUser.Default);
+        var fetchCalled = false;
+
+        var result = await service.ImportFromExternalAsync(
+            ValidDto(),
+            request =>
+            {
+                fetchCalled = true;
+                Assert.Equal("27205", request.ExternalId);
+                return Task.FromResult(new List<string> { "Sci-Fi", "Thriller" });
+            });
+
+        Assert.True(fetchCalled);
+        Assert.Equal(new[] { "Sci-Fi", "Thriller" }, result.Genres);
+    }
+
+    [Fact]
+    public async Task ImportAsync_WhenGenresAreSupplied_DoesNotFetchThemAgain()
+    {
+        using var db = CreateDb();
+        var service = new MediaService(db, TestCurrentUser.Default);
+        var dto = ValidDto();
+        dto.Genres = new List<string> { "Drama" };
+        var fetchCalled = false;
+
+        var result = await service.ImportFromExternalAsync(
+            dto,
+            _ =>
+            {
+                fetchCalled = true;
+                return Task.FromResult(new List<string> { "Sci-Fi" });
+            });
+
+        Assert.False(fetchCalled);
+        Assert.Equal(new[] { "Drama" }, result.Genres);
+    }
+
+    [Fact]
+    public async Task ImportAsync_DuplicateIsRejectedBeforeFetchingGenres()
+    {
+        using var db = CreateDb();
+        var service = new MediaService(db, TestCurrentUser.Default);
+        await service.ImportFromExternalAsync(ValidDto());
+        var fetchCalled = false;
+
+        await Assert.ThrowsAsync<DuplicateException>(() =>
+            service.ImportFromExternalAsync(
+                ValidDto(),
+                _ =>
+                {
+                    fetchCalled = true;
+                    return Task.FromResult(new List<string> { "Drama" });
+                }));
+
+        Assert.False(fetchCalled);
+    }
+
+    [Fact]
     public async Task ImportAsync_DuplicateExternalIdAndSource_ThrowsDuplicateException()
     {
         using var db = CreateDb();
@@ -82,7 +143,7 @@ public class MediaServiceImportTests
         var service = new MediaService(db, TestCurrentUser.Default);
         await service.ImportFromExternalAsync(ValidDto(externalSource: "TMDB"));
 
-        var second = await service.ImportFromExternalAsync(ValidDto(externalSource: "RAWG"));
+        var second = await service.ImportFromExternalAsync(ValidDto(externalSource: "RAWG", type: "game"));
 
         Assert.Equal("RAWG", second.ExternalSource);
         Assert.Equal(2, await db.MediaItems.CountAsync());
@@ -202,14 +263,15 @@ public class MediaServiceImportTests
 
     private static ImportMediaDto ValidDto(
         string externalId = "27205",
-        string externalSource = "TMDB") =>
+        string externalSource = "TMDB",
+        string type = "movie") =>
         new()
         {
             ExternalId = externalId,
             ExternalSource = externalSource,
             Title = "Inception",
             Year = 2010,
-            Type = "movie"
+            Type = type
         };
 
     private static AppDbContext CreateDb() => new(

@@ -3,10 +3,9 @@ using MediaLibrary.Api.Models.Dtos;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Search for GET /api/search: query the local database first, then external catalogs,
-/// or return an empty list (the bot can then offer manual item creation).
-/// The order is fixed (database → TMDB/RAWG), so a local item wins duplicate resolution
-/// against its external catalog match.
+/// Searches the owner's local library first, then the selected external catalogs.
+/// A required catalog failure is propagated so the API can return 503
+/// EXTERNAL_API_UNAVAILABLE, as specified in CONTRACT.md.
 /// </summary>
 public class SearchAggregatorService
 {
@@ -16,23 +15,17 @@ public class SearchAggregatorService
     private readonly MediaService _media;
     private readonly TmdbService _tmdb;
     private readonly RawgService _rawg;
-    private readonly ILogger<SearchAggregatorService> _logger;
 
-    public SearchAggregatorService(
-        MediaService media,
-        TmdbService tmdb,
-        RawgService rawg,
-        ILogger<SearchAggregatorService> logger)
+    public SearchAggregatorService(MediaService media, TmdbService tmdb, RawgService rawg)
     {
         _media = media;
         _tmdb = tmdb;
         _rawg = rawg;
-        _logger = logger;
     }
 
     /// <summary>
     /// type: null searches all sources; movie/series use TMDB; game uses RAWG.
-    /// External API failures reduce the result set but do not fail the request.
+    /// If any selected external catalog is unavailable, the caller returns 503.
     /// </summary>
     public async Task<List<SearchResultDto>> SearchAsync(string query, string? type)
     {
@@ -44,21 +37,50 @@ public class SearchAggregatorService
         var search = query.Trim();
         var typeFilter = NormalizeType(type);
 
-        // 1. Search the local database first; it is also the fallback when catalog keys are unset.
+        // 1. Search the local database first.
         results.AddRange(ToSearchResults(await SearchLocalAsync(search, typeFilter)));
 
         // 2. TMDB: movies for movie/no type, and TV series for series/no type.
         if (typeFilter is null or "movie")
-            AddUnique(results, await SafeCall(() => _tmdb.SearchMoviesAsync(search), "TMDB movies"));
+            AddUnique(results, await _tmdb.SearchMoviesAsync(search));
 
         if (typeFilter is null or "series")
-            AddUnique(results, await SafeCall(() => _tmdb.SearchSeriesAsync(search), "TMDB series"));
+            AddUnique(results, await _tmdb.SearchSeriesAsync(search));
 
         // 3. RAWG: games for game/no type.
         if (typeFilter is null or "game")
-            AddUnique(results, await SafeCall(() => _rawg.SearchGamesAsync(search), "RAWG games"));
+            AddUnique(results, await _rawg.SearchGamesAsync(search));
 
         return results;
+    }
+
+    /// <summary>
+    /// Fetch genre names for a catalog import. TMDB supports movies and series; RAWG supports games.
+    /// Provider failures are propagated as ExternalApiUnavailableException for the contract 503 response.
+    /// </summary>
+    public Task<List<string>> FetchImportGenresAsync(ImportMediaDto dto)
+    {
+        var type = NormalizeType(dto.Type)!;
+        var externalId = (dto.ExternalId ?? string.Empty).Trim();
+        var externalSource = (dto.ExternalSource ?? string.Empty).Trim();
+
+        if (string.Equals(externalSource, TmdbService.Source, StringComparison.OrdinalIgnoreCase))
+        {
+            if (type != "movie" && type != "series")
+                throw new ArgumentException("TMDB imports must have type movie or series");
+
+            return _tmdb.GetGenresAsync(externalId, type);
+        }
+
+        if (string.Equals(externalSource, RawgService.Source, StringComparison.OrdinalIgnoreCase))
+        {
+            if (type != "game")
+                throw new ArgumentException("RAWG imports must have type game");
+
+            return _rawg.GetGenresAsync(externalId);
+        }
+
+        throw new ArgumentException("ExternalSource must be TMDB or RAWG for catalog imports");
     }
 
     private async Task<List<MediaResponseDto>> SearchLocalAsync(string search, string? type)
@@ -106,7 +128,7 @@ public class SearchAggregatorService
 
     /// <summary>
     /// Deduplicate by ExternalSource + ExternalId, ignoring case.
-    /// Keep the first match, allowing a local item to override a TMDB/RAWG result.
+    /// Keep the first match, allowing a local item to override its external catalog match.
     /// </summary>
     private static void AddUnique(List<SearchResultDto> target, IEnumerable<SearchResultDto> candidates)
     {
@@ -133,25 +155,6 @@ public class SearchAggregatorService
             return string.Empty;
 
         return $"{source}|{id}";
-    }
-
-    /// <summary>
-    /// External services log their own failures; this guard handles unexpected exceptions
-    /// so search still returns 200 when a catalog provider is unavailable.
-    /// </summary>
-    private async Task<List<SearchResultDto>> SafeCall(
-        Func<Task<List<SearchResultDto>>> call,
-        string sourceName)
-    {
-        try
-        {
-            return await call();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Search in {Source} failed; continuing with other sources.", sourceName);
-            return new List<SearchResultDto>();
-        }
     }
 
     /// <summary>

@@ -253,5 +253,6 @@ app.MapMediaEndpoints();
 app.MapSearchEndpoints();
 app.MapStatsEndpoints();
 app.MapGenreEndpoints();
+app.MapTagEndpoints();
 
 app.Run();

@@ -54,6 +54,7 @@ public sealed class ApiAuthorizationMetadataTests
         app.MapSearchEndpoints();
         app.MapStatsEndpoints();
         app.MapGenreEndpoints();
+        app.MapTagEndpoints();
 
         var endpoints = ((IEndpointRouteBuilder)app).DataSources
             .SelectMany(source => source.Endpoints)
@@ -63,7 +64,8 @@ public sealed class ApiAuthorizationMetadataTests
             endpoint.RoutePattern.RawText?.StartsWith("/api/media", StringComparison.Ordinal) == true
             || endpoint.RoutePattern.RawText?.StartsWith("/api/search", StringComparison.Ordinal) == true
             || endpoint.RoutePattern.RawText?.StartsWith("/api/stats", StringComparison.Ordinal) == true
-            || endpoint.RoutePattern.RawText?.StartsWith("/api/genres", StringComparison.Ordinal) == true)
+            || endpoint.RoutePattern.RawText?.StartsWith("/api/genres", StringComparison.Ordinal) == true
+            || endpoint.RoutePattern.RawText?.StartsWith("/api/tags", StringComparison.Ordinal) == true)
             .ToArray();
 
         Assert.NotEmpty(dataEndpoints);

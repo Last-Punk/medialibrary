@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MediaLibrary.Api.Models.Dtos;
@@ -5,9 +6,10 @@ using MediaLibrary.Api.Models.Dtos;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Search RAWG games (GET games?search=...). The API key and base URL come from the Rawg configuration section.
-/// As with TMDB, a missing key, non-2xx response, or network error is logged as a warning and returns an empty list,
-/// so search returns fewer results instead of failing.
+/// Searches RAWG games and retrieves genre metadata for imports.
+/// A missing API key, non-success response, timeout, network error, or invalid JSON
+/// is reported as an unavailable external catalog so the API can return the contract's
+/// 503 EXTERNAL_API_UNAVAILABLE response.
 /// </summary>
 public class RawgService
 {
@@ -37,88 +39,130 @@ public class RawgService
     /// <summary>Search games by title.</summary>
     public async Task<List<SearchResultDto>> SearchGamesAsync(string query)
     {
-        var results = new List<SearchResultDto>();
-
         if (string.IsNullOrWhiteSpace(query))
-            return results;
+            return new List<SearchResultDto>();
 
-        if (_apiKey.Length == 0)
-        {
-            // A missing key is a supported development mode: search only the local database.
-            _logger.LogWarning(
-                "RAWG API key is not configured (Rawg:ApiKey). Skipping external search for \"{Query}\".",
-                query);
-            return results;
-        }
+        EnsureApiKey();
 
         var url = $"{_baseUrl}games?key={Uri.EscapeDataString(_apiKey)}"
                   + $"&search={Uri.EscapeDataString(query.Trim())}"
                   + $"&page_size={PageSize}";
+        var payload = await GetRequiredPayloadAsync<RawgSearchResponse>(url, "game search");
+        if (payload.Results is null)
+            throw new ExternalApiUnavailableException(Source);
 
-        try
+        var results = new List<SearchResultDto>();
+        foreach (var item in payload.Results)
         {
-            using var response = await _http.GetAsync(url);
+            if (item.Id is null)
+                continue;
 
-            if (!response.IsSuccessStatusCode)
+            var title = TrimOrNull(item.Name);
+            if (title is null)
+                continue;
+
+            results.Add(new SearchResultDto
             {
-                _logger.LogWarning(
-                    "RAWG request failed with status {StatusCode}. Returning empty result.",
-                    (int)response.StatusCode);
-                return results;
-            }
-
-            await using var stream = await response.Content.ReadAsStreamAsync();
-            var payload = await JsonSerializer.DeserializeAsync<RawgSearchResponse>(stream, JsonOptions);
-
-            if (payload?.Results is null)
-                return results;
-
-            foreach (var item in payload.Results)
-            {
-                if (item.Id is null)
-                    continue;
-
-                var title = TrimOrNull(item.Name);
-                if (title is null)
-                    continue;
-
-                results.Add(new SearchResultDto
-                {
-                    ExternalId = item.Id.Value.ToString(),
-                    ExternalSource = Source,
-                    Title = title,
-                    Year = ParseYear(item.Released),
-                    Type = "game",
-                    PosterUrl = TrimOrNull(item.BackgroundImage),
-                    // RAWG does not include a description in this list response, so avoid a second request.
-                    Overview = null
-                });
-            }
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogWarning(ex, "RAWG request was cancelled or timed out.");
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogWarning(ex, "RAWG request failed: network error.");
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "RAWG response could not be parsed.");
+                ExternalId = item.Id.Value.ToString(CultureInfo.InvariantCulture),
+                ExternalSource = Source,
+                Title = title,
+                Year = ParseYear(item.Released),
+                Type = "game",
+                PosterUrl = TrimOrNull(item.BackgroundImage),
+                // RAWG's list response does not include a description.
+                Overview = null
+            });
         }
 
         return results;
     }
 
-    /// <summary>Convert "2015-05-19" to 2015; return null for empty or invalid input.</summary>
+    /// <summary>Fetch the genre names for a RAWG game.</summary>
+    public async Task<List<string>> GetGenresAsync(string externalId)
+    {
+        if (!int.TryParse(externalId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
+            throw new ArgumentException("ExternalId must be a positive numeric RAWG ID", nameof(externalId));
+
+        EnsureApiKey();
+
+        var url = $"{_baseUrl}games/{id}?key={Uri.EscapeDataString(_apiKey)}";
+        var payload = await GetRequiredPayloadAsync<RawgGameDetailsResponse>(url, $"game details/{id}");
+        if (payload.Genres is null)
+            throw new ExternalApiUnavailableException(Source);
+
+        return payload.Genres
+            .Select(genre => TrimOrNull(genre.Name))
+            .Where(name => name is not null)
+            .Select(name => name!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void EnsureApiKey()
+    {
+        if (_apiKey.Length > 0)
+            return;
+
+        _logger.LogWarning("RAWG API key is not configured (Rawg:ApiKey).");
+        throw new ExternalApiUnavailableException(Source);
+    }
+
+    private async Task<TPayload> GetRequiredPayloadAsync<TPayload>(string url, string operation)
+        where TPayload : class
+    {
+        try
+        {
+            using var response = await _http.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "RAWG request for {Operation} failed with status {StatusCode}.",
+                    operation,
+                    (int)response.StatusCode);
+                throw new ExternalApiUnavailableException(Source);
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            var payload = await JsonSerializer.DeserializeAsync<TPayload>(stream, JsonOptions);
+            if (payload is null)
+            {
+                _logger.LogWarning("RAWG response for {Operation} contained no usable payload.", operation);
+                throw new ExternalApiUnavailableException(Source);
+            }
+
+            return payload;
+        }
+        catch (ExternalApiUnavailableException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "RAWG request for {Operation} timed out or was cancelled.", operation);
+            throw new ExternalApiUnavailableException(Source, ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "RAWG request for {Operation} failed because of a network error.", operation);
+            throw new ExternalApiUnavailableException(Source, ex);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "RAWG response for {Operation} could not be parsed.", operation);
+            throw new ExternalApiUnavailableException(Source, ex);
+        }
+    }
+
+    /// <summary>Convert a RAWG release date such as "2015-05-19" to 2015.</summary>
     private static int? ParseYear(string? date)
     {
         var value = TrimOrNull(date);
         if (value is null || value.Length < 4)
             return null;
 
-        return int.TryParse(value[..4], out var year) ? year : null;
+        return int.TryParse(value[..4], NumberStyles.None, CultureInfo.InvariantCulture, out var year)
+            ? year
+            : null;
     }
 
     private static string? TrimOrNull(string? value)
@@ -139,9 +183,6 @@ public class RawgService
     // RAWG uses snake_case response fields, so map their names explicitly.
     private sealed class RawgSearchResponse
     {
-        [JsonPropertyName("count")]
-        public int Count { get; set; }
-
         [JsonPropertyName("results")]
         public List<RawgGame>? Results { get; set; }
     }
@@ -159,5 +200,17 @@ public class RawgService
 
         [JsonPropertyName("background_image")]
         public string? BackgroundImage { get; set; }
+    }
+
+    private sealed class RawgGameDetailsResponse
+    {
+        [JsonPropertyName("genres")]
+        public List<RawgGenre>? Genres { get; set; }
+    }
+
+    private sealed class RawgGenre
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
     }
 }

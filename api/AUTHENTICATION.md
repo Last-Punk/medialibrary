@@ -60,7 +60,7 @@ Authorization: Bearer <token>
 
 Swagger UI exposes the `Bearer` scheme through its **Authorize** button. The API returns `401` with code `UNAUTHORIZED` for missing or invalid credentials.
 
-The authenticated subject is the only source of the owner ID. Media list filters, local search, create/update/delete, imports, viewing sessions, genres, and statistics are scoped to that owner. Attempting to read, update, delete, or add sessions to another user's media returns the existing `404 MEDIA_NOT_FOUND` shape. Imported external IDs are deduplicated within an owner's library, so different users may import the same catalog item independently.
+The authenticated subject is the only source of the owner ID. Media list filters, local search, create/update/delete, imports, viewing sessions, genres, tags, and statistics are scoped to that owner. Attempting to read, update, delete, or add sessions to another user's media returns the existing `404 MEDIA_NOT_FOUND` shape. Imported external IDs are deduplicated within an owner's library, so different users may import the same catalog item independently.
 
 ## Rate limits
 

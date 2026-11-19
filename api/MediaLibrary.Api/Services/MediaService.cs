@@ -226,7 +226,12 @@ public class MediaService
         return true;
     }
 
-    public async Task<MediaResponseDto> ImportFromExternalAsync(ImportMediaDto dto)
+    public Task<MediaResponseDto> ImportFromExternalAsync(ImportMediaDto dto) =>
+        ImportFromExternalAsync(dto, fetchGenresAsync: null);
+
+    public async Task<MediaResponseDto> ImportFromExternalAsync(
+        ImportMediaDto dto,
+        Func<ImportMediaDto, Task<List<string>>>? fetchGenresAsync)
     {
         ValidateDto(dto);
 
@@ -257,8 +262,10 @@ public class MediaService
         if (exists)
             throw new DuplicateException("Media already exists");
 
-        // A later catalog integration step can fetch genres from TMDB/RAWG separately;
-        // for now, use only genres supplied by the client.
+        var genreNames = dto.Genres;
+        if ((genreNames is null || genreNames.Count == 0) && fetchGenresAsync is not null)
+            genreNames = await fetchGenresAsync(dto);
+
         var item = new MediaItem
         {
             OwnerId = ownerId,
@@ -276,7 +283,7 @@ public class MediaService
             IsManualEntry = false,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = null,
-            Genres = await GetOrCreateGenresAsync(dto.Genres),
+            Genres = await GetOrCreateGenresAsync(genreNames),
             Tags = new List<Tag>()
         };
 

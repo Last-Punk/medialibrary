@@ -32,6 +32,20 @@ public class ErrorHandlingMiddlewareTests
     }
 
     [Fact]
+    public async Task ExternalCatalogUnavailable_ReturnsServiceUnavailable_WithContractErrorCode()
+    {
+        var (status, body, contentType) = await RunAsync(
+            _ => throw new ExternalApiUnavailableException("TMDB"));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, status);
+        Assert.Contains("application/json", contentType);
+
+        var json = JsonDocument.Parse(body).RootElement;
+        Assert.Equal("TMDB or RAWG is unavailable", json.GetProperty("error").GetString());
+        Assert.Equal("EXTERNAL_API_UNAVAILABLE", json.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task ArgumentException_ReturnsBadRequest_WithValidationErrorCode()
     {
         var (status, body, _) = await RunAsync(

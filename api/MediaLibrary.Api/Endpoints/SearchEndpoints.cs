@@ -16,8 +16,10 @@ public static class SearchEndpoints
             .WithTags("Search")
             .RequireAuthorization();
 
-        group.MapGet("", Search);
-        group.MapPost("/import", Import);
+        group.MapGet("", Search)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
+        group.MapPost("/import", Import)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
 
         return app;
     }
@@ -48,13 +50,17 @@ public static class SearchEndpoints
 
     /// <summary>
     /// POST /api/search/import imports a selected result into the library.
+    /// If genres are omitted, they are fetched from the matching external catalog.
     /// A duplicate ExternalId + ExternalSource pair returns 409 MEDIA_DUPLICATE.
     /// </summary>
-    private static async Task<IResult> Import(ImportMediaDto dto, MediaService service)
+    private static async Task<IResult> Import(
+        ImportMediaDto dto,
+        MediaService service,
+        SearchAggregatorService catalogs)
     {
         try
         {
-            var created = await service.ImportFromExternalAsync(dto);
+            var created = await service.ImportFromExternalAsync(dto, catalogs.FetchImportGenresAsync);
             return Results.Created($"/api/media/{created.Id}", created);
         }
         catch (DuplicateException ex)

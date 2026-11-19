@@ -4,7 +4,8 @@ namespace MediaLibrary.Api.Middleware;
 
 /// <summary>
 /// Fallback handling for exceptions not handled by endpoint-level try/catch blocks.
-/// HTTP binding errors return 400; all other errors use the { error, code } response shape.
+/// HTTP binding errors return 400, external catalog failures return 503, and all responses
+/// use the { error, code } response shape.
 /// </summary>
 public class ErrorHandlingMiddleware
 {
@@ -28,6 +29,20 @@ public class ErrorHandlingMiddleware
         catch (DuplicateException ex)
         {
             await WriteErrorAsync(context, StatusCodes.Status409Conflict, ex.Message, "MEDIA_DUPLICATE");
+        }
+        catch (ExternalApiUnavailableException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "External catalog {Provider} is unavailable while processing {Method} {Path}",
+                ex.Provider,
+                context.Request.Method,
+                context.Request.Path);
+            await WriteErrorAsync(
+                context,
+                StatusCodes.Status503ServiceUnavailable,
+                "TMDB or RAWG is unavailable",
+                "EXTERNAL_API_UNAVAILABLE");
         }
         catch (BadHttpRequestException ex)
         {

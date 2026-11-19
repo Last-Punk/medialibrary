@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -210,15 +212,23 @@ public sealed class MediaServiceOwnerIsolationTests
         using var db = CreateDb();
         var ownItem = SeedMedia(db, AliceId, "Private Moon");
         SeedMedia(db, BobId, "Private Moon");
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Tmdb:ApiKey"] = "test-key",
+                ["Rawg:ApiKey"] = "test-key"
+            })
+            .Build();
         var media = Service(db, AliceId);
-        var tmdb = new TmdbService(new HttpClient(), configuration, NullLogger<TmdbService>.Instance);
-        var rawg = new RawgService(new HttpClient(), configuration, NullLogger<RawgService>.Instance);
-        var search = new SearchAggregatorService(
-            media,
-            tmdb,
-            rawg,
-            NullLogger<SearchAggregatorService>.Instance);
+        var tmdb = new TmdbService(
+            new HttpClient(new EmptyCatalogHandler()),
+            configuration,
+            NullLogger<TmdbService>.Instance);
+        var rawg = new RawgService(
+            new HttpClient(new EmptyCatalogHandler()),
+            configuration,
+            NullLogger<RawgService>.Instance);
+        var search = new SearchAggregatorService(media, tmdb, rawg);
 
         var results = await search.SearchAsync("Private Moon", null);
 
@@ -256,6 +266,17 @@ public sealed class MediaServiceOwnerIsolationTests
 
     private static MediaService Service(AppDbContext db, int ownerId) =>
         new(db, new TestCurrentUser(ownerId));
+
+    private sealed class EmptyCatalogHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"results\":[]}", Encoding.UTF8, "application/json")
+            });
+    }
 
     private static AppDbContext CreateDb() => new(
         new DbContextOptionsBuilder<AppDbContext>()

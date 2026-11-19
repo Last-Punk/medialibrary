@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MediaLibrary.Api.Models.Dtos;
@@ -5,19 +6,16 @@ using MediaLibrary.Api.Models.Dtos;
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Search TMDB movies and TV series (search/movie and search/tv).
-/// The API key and URLs come from the Tmdb configuration section; no credentials are stored in code.
-/// Any external-service problem (missing key, non-2xx response, network error, or timeout)
-/// is logged as a warning and returns an empty list instead of failing the request;
-/// the aggregator can still return results from other sources.
+/// Searches TMDB movies and TV series and retrieves genre metadata for imports.
+/// A missing API key, non-success response, timeout, network error, or invalid JSON
+/// is reported as an unavailable external catalog so the API can return the contract's
+/// 503 EXTERNAL_API_UNAVAILABLE response.
 /// </summary>
 public class TmdbService
 {
     public const string Source = "TMDB";
 
     private const string DefaultBaseUrl = "https://api.themoviedb.org/3/";
-    // EnsureTrailingSlash returns the fallback unchanged, so this trailing slash is required
-    // to avoid concatenating poster paths without a separator when configuration is missing.
     private const string DefaultImageBaseUrl = "https://image.tmdb.org/t/p/w500/";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -40,108 +38,149 @@ public class TmdbService
         _imageBaseUrl = EnsureTrailingSlash(configuration["Tmdb:ImageBaseUrl"], DefaultImageBaseUrl);
     }
 
-    /// <summary>Search movies (search/movie).</summary>
+    /// <summary>Search movies using TMDB's search/movie endpoint.</summary>
     public Task<List<SearchResultDto>> SearchMoviesAsync(string query) =>
         SearchAsync("search/movie", "movie", query);
 
-    /// <summary>Search TV series (search/tv).</summary>
+    /// <summary>Search TV series using TMDB's search/tv endpoint.</summary>
     public Task<List<SearchResultDto>> SearchSeriesAsync(string query) =>
         SearchAsync("search/tv", "series", query);
 
-    private async Task<List<SearchResultDto>> SearchAsync(string path, string type, string query)
+    /// <summary>Fetch the genre names for a TMDB movie or TV series.</summary>
+    public async Task<List<string>> GetGenresAsync(string externalId, string type)
     {
-        var results = new List<SearchResultDto>();
+        if (!int.TryParse(externalId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
+            throw new ArgumentException("ExternalId must be a positive numeric TMDB ID", nameof(externalId));
 
-        if (string.IsNullOrWhiteSpace(query))
-            return results;
+        var path = type.Trim().ToLowerInvariant() switch
+        {
+            "movie" => "movie",
+            "series" => "tv",
+            _ => throw new ArgumentException("TMDB imports must have type movie or series", nameof(type))
+        };
 
         if (_apiKey.Length == 0)
         {
-            // A missing key is a supported development mode: search only the local database.
-            _logger.LogWarning(
-                "TMDB API key is not configured (Tmdb:ApiKey). Skipping external search for \"{Query}\".",
-                query);
-            return results;
+            _logger.LogWarning("TMDB API key is not configured (Tmdb:ApiKey).");
+            throw new ExternalApiUnavailableException(Source);
         }
 
-        // URL-encode the query so spaces, Unicode, and ampersands do not break the request.
+        var url = $"{_baseUrl}{path}/{id}?api_key={Uri.EscapeDataString(_apiKey)}&language=en-US";
+        var payload = await GetRequiredPayloadAsync<TmdbDetailsResponse>(url, $"{path}/{id}");
+        if (payload.Genres is null)
+            throw new ExternalApiUnavailableException(Source);
+
+        return payload.Genres
+            .Select(genre => TrimOrNull(genre.Name))
+            .Where(name => name is not null)
+            .Select(name => name!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private async Task<List<SearchResultDto>> SearchAsync(string path, string type, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return new List<SearchResultDto>();
+
+        if (_apiKey.Length == 0)
+        {
+            _logger.LogWarning("TMDB API key is not configured (Tmdb:ApiKey).");
+            throw new ExternalApiUnavailableException(Source);
+        }
+
         var url = $"{_baseUrl}{path}?api_key={Uri.EscapeDataString(_apiKey)}&query={Uri.EscapeDataString(query)}&language=en-US";
+        var payload = await GetRequiredPayloadAsync<TmdbSearchResponse>(url, path);
+        if (payload.Results is null)
+            throw new ExternalApiUnavailableException(Source);
 
-        try
+        var results = new List<SearchResultDto>();
+        foreach (var item in payload.Results)
         {
-            using var response = await _http.GetAsync(url);
+            if (item.Id is null)
+                continue;
 
-            if (!response.IsSuccessStatusCode)
+            var title = FirstNonEmpty(item.Title, item.Name);
+            if (title is null)
+                continue;
+
+            results.Add(new SearchResultDto
             {
-                _logger.LogWarning(
-                    "TMDB request to {Path} failed with status {StatusCode}. Returning empty result.",
-                    path, (int)response.StatusCode);
-                return results;
-            }
-
-            await using var stream = await response.Content.ReadAsStreamAsync();
-            var payload = await JsonSerializer.DeserializeAsync<TmdbSearchResponse>(stream, JsonOptions);
-
-            if (payload?.Results is null)
-                return results;
-
-            foreach (var item in payload.Results)
-            {
-                if (item.Id is null)
-                    continue;
-
-                var title = FirstNonEmpty(item.Title, item.Name);
-                if (title is null)
-                    continue;
-
-                results.Add(new SearchResultDto
-                {
-                    // TMDB IDs are numeric; the contract represents externalId as a string.
-                    ExternalId = item.Id.Value.ToString(),
-                    ExternalSource = Source,
-                    Title = title,
-                    Year = ParseYear(FirstNonEmpty(item.ReleaseDate, item.FirstAirDate)),
-                    Type = type,
-                    PosterUrl = BuildPosterUrl(item.PosterPath),
-                    Overview = TrimOrNull(item.Overview)
-                });
-            }
-        }
-        catch (OperationCanceledException ex)
-        {
-            // An HttpClient timeout or request cancellation must not fail the overall search.
-            _logger.LogWarning(ex, "TMDB request to {Path} was cancelled or timed out.", path);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogWarning(ex, "TMDB request to {Path} failed: network error.", path);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "TMDB response for {Path} could not be parsed.", path);
+                ExternalId = item.Id.Value.ToString(CultureInfo.InvariantCulture),
+                ExternalSource = Source,
+                Title = title,
+                Year = ParseYear(FirstNonEmpty(item.ReleaseDate, item.FirstAirDate)),
+                Type = type,
+                PosterUrl = BuildPosterUrl(item.PosterPath),
+                Overview = TrimOrNull(item.Overview)
+            });
         }
 
         return results;
     }
 
+    private async Task<TPayload> GetRequiredPayloadAsync<TPayload>(string url, string operation)
+        where TPayload : class
+    {
+        try
+        {
+            using var response = await _http.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "TMDB request for {Operation} failed with status {StatusCode}.",
+                    operation,
+                    (int)response.StatusCode);
+                throw new ExternalApiUnavailableException(Source);
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            var payload = await JsonSerializer.DeserializeAsync<TPayload>(stream, JsonOptions);
+            if (payload is null)
+            {
+                _logger.LogWarning("TMDB response for {Operation} contained no usable payload.", operation);
+                throw new ExternalApiUnavailableException(Source);
+            }
+
+            return payload;
+        }
+        catch (ExternalApiUnavailableException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "TMDB request for {Operation} timed out or was cancelled.", operation);
+            throw new ExternalApiUnavailableException(Source, ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "TMDB request for {Operation} failed because of a network error.", operation);
+            throw new ExternalApiUnavailableException(Source, ex);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "TMDB response for {Operation} could not be parsed.", operation);
+            throw new ExternalApiUnavailableException(Source, ex);
+        }
+    }
+
     private string? BuildPosterUrl(string? posterPath)
     {
         var path = TrimOrNull(posterPath);
-        if (path is null)
-            return null;
-
-        // TMDB paths start with a slash; combine them without creating a double slash.
-        return _imageBaseUrl + path.TrimStart('/');
+        return path is null ? null : _imageBaseUrl + path.TrimStart('/');
     }
 
-    /// <summary>Convert "2010-07-16" to 2010; return null for empty or invalid input.</summary>
+    /// <summary>Convert a TMDB date such as "2010-07-16" to 2010.</summary>
     private static int? ParseYear(string? date)
     {
         var value = TrimOrNull(date);
         if (value is null || value.Length < 4)
             return null;
 
-        return int.TryParse(value[..4], out var year) ? year : null;
+        return int.TryParse(value[..4], NumberStyles.None, CultureInfo.InvariantCulture, out var year)
+            ? year
+            : null;
     }
 
     private static string? FirstNonEmpty(params string?[] values)
@@ -174,14 +213,8 @@ public class TmdbService
     // TMDB uses snake_case response fields, so map their names explicitly.
     private sealed class TmdbSearchResponse
     {
-        [JsonPropertyName("page")]
-        public int Page { get; set; }
-
         [JsonPropertyName("results")]
         public List<TmdbSearchItem>? Results { get; set; }
-
-        [JsonPropertyName("total_results")]
-        public int TotalResults { get; set; }
     }
 
     private sealed class TmdbSearchItem
@@ -189,7 +222,6 @@ public class TmdbService
         [JsonPropertyName("id")]
         public int? Id { get; set; }
 
-        // Movies use title/release_date; TV series use name/first_air_date.
         [JsonPropertyName("title")]
         public string? Title { get; set; }
 
@@ -207,5 +239,17 @@ public class TmdbService
 
         [JsonPropertyName("overview")]
         public string? Overview { get; set; }
+    }
+
+    private sealed class TmdbDetailsResponse
+    {
+        [JsonPropertyName("genres")]
+        public List<TmdbGenre>? Genres { get; set; }
+    }
+
+    private sealed class TmdbGenre
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
     }
 }

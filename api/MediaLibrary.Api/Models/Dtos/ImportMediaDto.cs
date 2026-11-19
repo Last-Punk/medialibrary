@@ -5,8 +5,8 @@ namespace MediaLibrary.Api.Models.Dtos;
 /// <summary>
 /// Request body for importing an item from an external catalog with POST /api/search/import.
 /// A duplicate ExternalId + ExternalSource pair returns 409 MEDIA_DUPLICATE (see MediaService).
-/// Genres are optional. If omitted by the client, they are fetched from TMDB or RAWG
-/// during the catalog import flow.
+/// Genres are optional. If omitted or empty, they are fetched from TMDB or RAWG
+/// during the catalog import flow. An unavailable catalog is reported as HTTP 503.
 /// </summary>
 public class ImportMediaDto
 {
