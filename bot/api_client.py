@@ -3,6 +3,10 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 class MediaCreate(BaseModel):
+    """
+    Модель для створення нового медіа-запису.
+    Використовується при відправці POST-запитів на сервер.
+    """
     title: str
     year: Optional[int] = None
     type: str
@@ -14,11 +18,22 @@ class MediaCreate(BaseModel):
 
 
 class MediaLibraryClient:
+    """
+    Асинхронний HTTP-клієнт для взаємодії з бекендом MediaLibrary.Api (C#).
+    
+    Attributes:
+        base_url (str): Базова URL-адреса API сервера (наприклад, http://localhost:5021).
+    """
     def __init__(self, base_url: str = "http://localhost:5021"):
         self.base_url = base_url
 
     async def test_connection(self) -> str:
-        """Перевірка доступності сервера"""
+        """
+        Перевіряє доступність API сервера.
+        
+        Returns:
+            str: Повідомлення про успішний статус або опис помилки.
+        """
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(f"{self.base_url}/swagger/index.html", timeout=5.0)
@@ -58,7 +73,15 @@ class MediaLibraryClient:
                 return {"total": 0, "offset": offset, "limit": limit, "items": []}
 
     async def get_media_by_id(self, media_id: int) -> Optional[Dict[str, Any]]:
-        """GET /api/media/{id} — деталі запису"""
+        """
+        Отримує детальну інформацію про один медіа-запис за його ідентифікатором.
+
+        Args:
+            media_id (int): Унікальний ID медіа-запису.
+
+        Returns:
+            Optional[Dict[str, Any]]: Словник із даними запису або None, якщо його не знайдено.
+        """
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(f"{self.base_url}/api/media/{media_id}")
@@ -144,7 +167,12 @@ class MediaLibraryClient:
                 return []
 
     async def get_tags(self) -> List[Dict[str, Any]]:
-        """GET /api/tags — список тегів"""
+        """
+        Отримує список усіх доступних тегів.
+        
+        Returns:
+            List[Dict[str, Any]]: Список словників із даними тегів.
+        """
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(f"{self.base_url}/api/tags")

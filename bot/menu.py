@@ -55,6 +55,10 @@ async def process_stats(callback: CallbackQuery, api: MediaLibraryClient):
 
 @router.callback_query(F.data == "show_dicts")
 async def process_dicts(callback: CallbackQuery, api: MediaLibraryClient):
+    """
+    Обробляє натискання кнопки 'Довідники'.
+    Завантажує жанри та теги з бекенду і формує текстовий звіт.
+    """
     genres = await api.get_genres()
     tags = await api.get_tags()
 
@@ -71,6 +75,10 @@ async def process_dicts(callback: CallbackQuery, api: MediaLibraryClient):
 
 @router.callback_query(F.data == "ping_server")
 async def process_ping_button(callback: CallbackQuery, api: MediaLibraryClient):
+    """
+    Обробляє натискання кнопки 'Статус сервера'.
+    Викликає тестовий ендпоінт API та виводить результат користувачеві.
+    """
     result = await api.test_connection()
     await callback.message.edit_text(f"<b>Статус сервера:</b>\n{result}", parse_mode="HTML", reply_markup=get_back_keyboard())
     await callback.answer()
