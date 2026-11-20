@@ -1,202 +1,216 @@
-# MediaLibrary.Api
+# MediaLibrary API
 
-REST API особистої медіатеки (фільми, серіали, ігри) з інтеграцією зовнішніх каталогів TMDB і RAWG. Контракт взаємодії з клієнтом (Telegram-ботом) зафіксований у [`../CONTRACT.md`](../CONTRACT.md).
+The REST API for a personal library of movies, TV series, and games. It provides Telegram-based sign-in, owner-scoped library operations, catalog search through TMDB and RAWG, viewing sessions, genres, tags, and statistics. The API contract is documented in [`../CONTRACT.md`](../CONTRACT.md).
 
-## Стек
+## Technology
 
-- .NET 9 / C# 13, ASP.NET Core Minimal API
-- EF Core 9 — SQLite (development) або PostgreSQL (production), провайдер обирається середовищем
+- .NET 9 / C# 13 / ASP.NET Core Minimal APIs
+- Entity Framework Core 9
+- SQLite in Development; PostgreSQL in Production
 - Swashbuckle (Swagger/OpenAPI)
-- xUnit + EF Core InMemory (тести, проєкт `MediaLibrary.Api.Tests`)
+- xUnit and EF Core InMemory for tests (`MediaLibrary.Api.Tests`)
 
-## Вимоги
+## Requirements
 
-- .NET SDK 9.0+
-- (Опціонально) `dotnet-ef` для роботи з міграціями: `dotnet tool install --global dotnet-ef`
+- .NET 9 SDK
+- OpenSSL if you want to generate random local secrets with the commands below
+- Optional: EF Core 9 tooling for creating or applying migrations (`dotnet tool install --global dotnet-ef --version 9.0.0`)
 
-## Запуск локально
+## Local development
+
+From the repository root, restore and test the solution:
+
+```bash
+dotnet restore api/MediaLibrary.sln
+dotnet test api/MediaLibrary.sln
+```
+
+Configure secrets in .NET User Secrets; never commit them or place them in tracked settings files. `Jwt:Secret` is required. `BotAuth:ApiKey` enables the trusted bot-server sign-in endpoint. `Telegram:BotToken` is needed to validate Telegram Web App `initData` during local testing.
 
 ```bash
 cd api/MediaLibrary.Api
-dotnet restore
-
-# Схема БД застосовується автоматично на старті застосунку (Database.Migrate):
-# для Development береться набір міграцій з проєкту MediaLibrary.Migrations.Sqlite.
-dotnet run
-
-# Лише коли модель змінилася — нова міграція чи ручне оновлення локальної БД:
-dotnet ef migrations add <MigrationName> --project ../MediaLibrary.Migrations.Sqlite --startup-project .
-dotnet ef database update --project ../MediaLibrary.Migrations.Sqlite --startup-project .
+dotnet user-secrets set "Jwt:Secret" "$(openssl rand -hex 32)"
+dotnet user-secrets set "BotAuth:ApiKey" "$(openssl rand -hex 32)"
+dotnet user-secrets set "Telegram:BotToken" "<token from BotFather>"
+dotnet run --launch-profile http
 ```
 
-Дев-profіль (`Properties/launchSettings.json`, `ASPNETCORE_ENVIRONMENT=Development`) слухає `http://localhost:5021`. Для повної відповідності контракту (base URL `http://localhost:5000`):
+The Development HTTP profile listens on `http://localhost:5021`. Open Swagger UI at [`http://localhost:5021/swagger`](http://localhost:5021/swagger); the OpenAPI document is available at `/swagger/v1/swagger.json`. The checked-in [`swagger.json`](./swagger.json) is a generated snapshot, not the source of truth. Regenerate it after endpoint, response-status, or security metadata changes and before release.
+
+The Development database uses SQLite (`Data Source=medialibrary.db`). The API applies the active provider's existing migrations automatically at startup. **Do not run `dotnet ef database update` as part of normal local setup.** If a schema change requires a new migration, create and apply it deliberately. The design-time factory selects its provider from `DOTNET_ENVIRONMENT` first, then `ASPNETCORE_ENVIRONMENT`, so set both when generating or applying migrations. From `api/MediaLibrary.Api`, use these commands for SQLite:
 
 ```bash
-dotnet run --urls http://localhost:5000
+DOTNET_ENVIRONMENT=Development ASPNETCORE_ENVIRONMENT=Development dotnet ef migrations add <MigrationName> --project ../MediaLibrary.Migrations.Sqlite --startup-project .
+DOTNET_ENVIRONMENT=Development ASPNETCORE_ENVIRONMENT=Development dotnet ef database update --project ../MediaLibrary.Migrations.Sqlite --startup-project .
 ```
 
-Рядок підключення development середовища — `ConnectionStrings:Default` у `appsettings.Development.json` (`Data Source=medialibrary.db`).
+For PostgreSQL migrations, set both variables to `Production`, target `../MediaLibrary.Migrations.Postgres`, and provide `ConnectionStrings__Default` when applying them.
 
-Збірка й запуск тестів усього рішення (з кореня `api/`, де лежить `MediaLibrary.sln`):
+The API contract lists `http://localhost:5000` as its development base URL. To use that port instead of the launch profile's `5021`, run the API with `dotnet run --urls http://localhost:5000`.
 
-```bash
-cd api
-dotnet restore
-dotnet build
-dotnet test
-```
+To build and test from the `api/` directory instead, run `dotnet restore`, `dotnet build`, and `dotnet test` against `MediaLibrary.sln`.
 
-## Конфігурація
+## Authentication and ownership
 
-Усі параметри читаються з конфігурації (`appsettings*.json` або змінні середовища, де `:` замінюється на `__`). Секрети в репозиторій не комітяться; `appsettings.Production.json` у `.gitignore`.
+- `POST /api/auth/telegram` validates Telegram Web App `initData` and returns a user-scoped JWT.
+- `POST /api/auth/bot` exchanges the trusted bot server's `X-Bot-Api-Key` and Telegram user ID for the same user-scoped JWT format.
+- Protected API requests require `Authorization: Bearer <token>`.
+- The JWT subject identifies the local owner. Library reads and writes are scoped to that owner; another user's media is reported as `404 MEDIA_NOT_FOUND`.
 
-| Ключ | Змінна середовища | Призначення |
-|---|---|---|
-| `ConnectionStrings:Default` | `ConnectionStrings__Default` | SQLite (`Data Source=...`) або PostgreSQL (`Host=...;Database=...;Username=...;Password=...`) |
-| `Tmdb:ApiKey` | `Tmdb__ApiKey` | API-ключ TMDB (v3). Без ключа зовнішній пошук фільмів/серіалів пропускається |
-| `Tmdb:BaseUrl` | `Tmdb__BaseUrl` | Веб-адреса TMDB API (default `https://api.themoviedb.org/3/`) |
-| `Tmdb:ImageBaseUrl` | `Tmdb__ImageBaseUrl` | База для постерів (default `https://image.tmdb.org/t/p/w500`) |
-| `Rawg:ApiKey` | `Rawg__ApiKey` | API-ключ RAWG. Без ключа пошук ігор пропускається |
-| `Rawg:BaseUrl` | `Rawg__BaseUrl` | Веб-адреса RAWG API (default `https://api.rawg.io/api/`) |
-| `ASPNETCORE_ENVIRONMENT` | — | `Development` → SQLite, `Production` → PostgreSQL |
+See [Authentication and ownership](./AUTHENTICATION.md) for request examples, secret requirements, validation behavior, error codes, and security details.
 
-Режим без ключів — штатний для розробки: пошук працює лише по локальній бібліотеці, помилки зовнішніх провайдерів логуються як попередження й не валять запит (`GET /api/search` завжди відповідає 200).
+## API endpoints
 
-## Swagger
-
-- UI: `http://localhost:5021/swagger` (або відповідний порт запуску)
-- OpenAPI-документ: `/swagger/v1/swagger.json`
-- Експортована копія специфікації для контрактних звірок: [`./swagger.json`](./swagger.json)
-
-## Архітектура
-
-```
-MediaLibrary.Api/                 HTTP-шар і бізнес-логіка
-  Endpoints/                      мінімальні ендпоінти, мапінг IResult, try/catch → { error, code }
-  Services/                       MediaService (CRUD, сесії, імпорт, валідація),
-                                  TmdbService/RawgService (HTTP-клієнти TMDB/RAWG),
-                                  SearchAggregatorService (конвейер «БД → TMDB → RAWG»)
-MediaLibrary.Core/                доменна модель (Entities) + AppDbContext:
-                                  MediaItems, Genres, Tags, ViewingSessions
-MediaLibrary.Migrations.Sqlite/   EF-міграції під SQLite (Development)
-MediaLibrary.Migrations.Postgres/ EF-міграції під PostgreSQL (Production)
-```
-
-- **Middleware-конвеєр:** `ErrorHandlingMiddleware` йде першим після Swagger — підхоплює винятки без власного обробника й гарантує єдиний формат `{ error, code }`.
-- **DI:** `MediaService`/`SearchAggregatorService` — scoped; `TmdbService`/`RawgService` — типізовані `HttpClient` (`AddHttpClient`).
-- **Міграції:** міграції згенеровані окремо під кожен провайдер (в окремих збірках, щоб уникнути циклічних посилань і конфліктів наборів — через `MigrationsAssembly` у реєстрації `DbContext`); на старті застосунок виконує `Database.Migrate()`, тож схема цільової БД завжди відповідає моделі.
-- **Модель даних:** `MediaItem` ↔ `Genre`/`Tag` — many-to-many (join-таблиці `MediaItemGenre`, `MediaItemTag`); `MediaItem` → `ViewingSession` — one-to-many із каскадним видаленням.
-- **Дедуплікація пошуку:** за парою `ExternalSource + ExternalId` (без урахування регістру); локальний запис має пріоритет над зовнішнім близнюком.
-
-## Ендпоінти
-
-| Метод | Шлях | Призначення | Успіх |
+| Method | Path | Purpose | Success |
 |---|---|---|---|
-| GET | `/api/media` | Список із фільтрами `type`, `status`, `genre`, `minRating`, `search` + пагінація `offset`/`limit` (≤ 100) | 200 `{ total, offset, limit, items }` |
-| GET | `/api/media/{id}` | Деталі запису | 200 / 404 |
-| POST | `/api/media` | Створення вручну (`isManualEntry: true`) | 201 / 400 |
-| PUT | `/api/media/{id}` | Часткове оновлення (null-поля не зачіпаються) | 200 / 400 / 404 |
-| DELETE | `/api/media/{id}` | Видалення (каскадом сесії) | 204 / 404 |
-| GET | `/api/media/{id}/sessions` | Історія перегляду, новіші першими | 200 `{ sessions }` / 404 |
-| POST | `/api/media/{id}/sessions` | Додати сесію (`date` опційна — default: поточний UTC) | 201 / 404 |
-| GET | `/api/search?query=...&type=...` | Пошук у БД + TMDB + RAWG з дедуплікацією | 200 `{ results }` / 400 |
-| POST | `/api/search/import` | Імпорт знайденого в бібліотеку | 201 / 400 / 409 |
-| GET | `/api/stats` | Агрегати: `total`, `byStatus`, `byType`, `avgRating`, `topGenres` (≤ 5) | 200 |
-| GET | `/api/genres` | Довідник жанрів, відсортований за `name` | 200 `{ genres }` |
+| `POST` | `/api/auth/telegram` | Sign in with Telegram Web App `initData` | `200` |
+| `POST` | `/api/auth/bot` | Trusted bot-server sign-in exchange | `200` |
+| `GET` | `/api/media` | List owned items; supports type, status, genre, minimum-rating, search, and pagination filters | `200 { total, offset, limit, items }` |
+| `GET` | `/api/media/{id}` | Get one owned item | `200` / `404` |
+| `POST` | `/api/media` | Create a manual item | `201` / `400` |
+| `PUT` | `/api/media/{id}` | Partially update an owned item; omitted or null fields are unchanged | `200` / `400` / `404` |
+| `DELETE` | `/api/media/{id}` | Delete an item and its viewing sessions | `204` / `404` |
+| `GET` | `/api/media/{id}/sessions` | List viewing sessions, newest first | `200 { sessions }` / `404` |
+| `POST` | `/api/media/{id}/sessions` | Add a viewing session; date defaults to the current UTC time | `201` / `404` |
+| `GET` | `/api/search?query=…&type=…` | Search the local library and external catalogs | `200 { results }` / `400` / `503` |
+| `POST` | `/api/search/import` | Import a catalog result into the caller's library; fetches genres when omitted | `201` / `400` / `409` / `503` |
+| `GET` | `/api/genres` | List genres used in the caller's library, sorted by name | `200 { genres }` |
+| `GET` | `/api/tags` | List tags used in the caller's library, sorted by name | `200 { tags }` |
+| `GET` | `/api/stats` | Get owner-scoped totals, status/type counts, average rating, and top genres | `200` |
 
-### Приклади
+Search checks the local database first, followed by TMDB for movies and series and RAWG for games. Results are deduplicated by `ExternalSource + ExternalId` without case sensitivity; a local match takes priority over its external catalog match. If any selected provider is unavailable or its API key is missing, the request returns `503 EXTERNAL_API_UNAVAILABLE` instead of partial results. When an import request omits genres or supplies an empty list, the API fetches them from the matching catalog before saving the item.
 
-Створити запис:
+## Request examples
+
+Set `API_BASE` to the local URL and use a user JWT returned by one of the sign-in endpoints:
 
 ```bash
-curl -X POST http://localhost:5000/api/media \
+API_BASE=http://localhost:5021
+TOKEN="<user JWT>"
+```
+
+Create a manual media item:
+
+```bash
+curl -X POST "$API_BASE/api/media" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title":"Inception","type":"movie","year":2010,"genres":["Sci-Fi"],"rating":9,"status":"completed"}'
 ```
 
-Відповідь `201 Created` (фрагмент):
-
-```json
-{
-  "id": 1,
-  "title": "Inception",
-  "type": "movie",
-  "status": "completed",
-  "rating": 9,
-  "genres": ["Sci-Fi"],
-  "isManualEntry": true,
-  "createdAt": "2026-11-15T10:24:31Z",
-  "updatedAt": null
-}
-```
-
-Пошук із фільтром типу:
+Search for a movie:
 
 ```bash
-curl "http://localhost:5000/api/search?query=inception&type=movie"
+curl "$API_BASE/api/search?query=inception&type=movie" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-```json
-{ "results": [ { "externalId": "27205", "externalSource": "TMDB", "title": "Inception", "year": 2010, "type": "movie", "posterUrl": "https://...", "overview": "..." } ] }
-```
-
-Імпорт дубліката:
+Import a catalog result. The result is owner-scoped, and a duplicate `ExternalSource + ExternalId` pair in that owner's library returns `409 MEDIA_DUPLICATE`:
 
 ```bash
-curl -X POST http://localhost:5000/api/search/import -H "Content-Type: application/json" \
+curl -X POST "$API_BASE/api/search/import" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"externalId":"27205","externalSource":"TMDB","title":"Inception","type":"movie"}'
 ```
 
-```json
-{ "error": "Media already exists", "code": "MEDIA_DUPLICATE" }
-```
+## Configuration
 
-## Помилки
+Values can be provided through `appsettings*.json`, .NET User Secrets, or environment variables. In environment variables, replace `:` with `__`. Keep secret values in User Secrets or the deployment host's secret manager.
 
-Формат тіла для всіх клієнтських і серверних помилок:
-
-```json
-{ "error": "<текст>", "code": "<код>" }
-```
-
-| HTTP | code | Коли |
+| Configuration key | Environment variable | Notes |
 |---|---|---|
-| 400 | `VALIDATION_ERROR` | Невалідні дані (порожній/відсутній `title`, `type` поза переліком, `rating` поза 1–10, `year` поза 1900–2100, пустий `query`…) |
-| 404 | `MEDIA_NOT_FOUND` | Запис або медіа для сесій не знайдено |
-| 409 | `MEDIA_DUPLICATE` | Дублікат за `externalId` + `externalSource` при імпорті (без урахування регістру джерела) |
-| 500 | `INTERNAL_ERROR` | Непередбачена помилка (деталі — в логах, у відповідь не потрапляють) |
+| `ConnectionStrings:Default` | `ConnectionStrings__Default` | Required. Defaults to SQLite in Development; Production uses PostgreSQL. |
+| `Jwt:Secret` | `Jwt__Secret` | Required; at least 32 UTF-8 bytes. |
+| `Jwt:Issuer` | `Jwt__Issuer` | Defaults to `MediaLibrary.Api`. |
+| `Jwt:Audience` | `Jwt__Audience` | Defaults to `MediaLibrary.Bot`. |
+| `Jwt:ExpiresHours` | `Jwt__ExpiresHours` | Defaults to 24; allowed range is 1–720 hours. |
+| `Telegram:BotToken` | `Telegram__BotToken` | Used to validate Web App `initData`; required in Production. |
+| `Telegram:InitDataMaxAgeMinutes` | `Telegram__InitDataMaxAgeMinutes` | Defaults to 1,440 minutes; allowed range is 1–10,080 minutes. |
+| `BotAuth:ApiKey` | `BotAuth__ApiKey` | Enables bot-server sign-in; required in Production, at least 32 UTF-8 bytes, and distinct from `Jwt:Secret`. |
+| `Tmdb:ApiKey` | `Tmdb__ApiKey` | Optional configuration; required for TMDB movie/TV search and genre imports. If missing, requests that use TMDB return `503 EXTERNAL_API_UNAVAILABLE`. |
+| `Tmdb:BaseUrl` | `Tmdb__BaseUrl` | Defaults to `https://api.themoviedb.org/3/`. |
+| `Tmdb:ImageBaseUrl` | `Tmdb__ImageBaseUrl` | Defaults to `https://image.tmdb.org/t/p/w500`. |
+| `Rawg:ApiKey` | `Rawg__ApiKey` | Optional configuration; required for RAWG game search and genre imports. If missing, requests that use RAWG return `503 EXTERNAL_API_UNAVAILABLE`. |
+| `Rawg:BaseUrl` | `Rawg__BaseUrl` | Defaults to `https://api.rawg.io/api/`. |
+| `ASPNETCORE_ENVIRONMENT` | — | `Development` selects SQLite; `Production` selects PostgreSQL. |
 
-## Контрактні правила
+The application can start in Development without TMDB or RAWG keys, but search and genre imports that require an unconfigured or unavailable catalog return `503 EXTERNAL_API_UNAVAILABLE`. Local library CRUD and statistics remain available.
 
-- `type`: `movie` | `series` | `game`; `status`: `plan` | `watching` | `completed` | `dropped` — **завжди lowercase**, парсинг вхідних значень регістронезалежний.
-- Дати — ISO 8601 UTC із суфіксом `Z` (`2026-11-15T10:24:31Z`).
-- Пагінація: `offset` ≥ 0, `limit` за замовчуванням 20, максимум 100.
-- Специфікація: [`../CONTRACT.md`](../CONTRACT.md); будь-яка зміна контракту — за згодою обох сторін.
+## Rate limits
 
-## Деплой
+Defaults are configured under `RateLimiting`:
 
-Production-збірка використовує PostgreSQL; провайдер БД перемикається за `ASPNETCORE_ENVIRONMENT` (див. `Program.cs`):
+- 100 API requests per 60 seconds per authenticated user, or per IP for anonymous requests.
+- 10 Telegram Web App sign-in attempts per 60 seconds per IP.
+- 100 bot-server sign-in attempts per 60 seconds per IP.
 
-- `Production` → Npgsql (`ConnectionStrings__Default` = PostgreSQL-рядок);
-- будь-що інше → SQLite.
+The permit limits and window durations are configurable. Rate-limit rejections return `429 RATE_LIMITED`.
 
-Корінь `api/` містить `Dockerfile` (multi-stage, SDK 9.0 → ASP.NET 9.0 runtime, порт 8080):
+## Data, errors, and contract rules
+
+- Media types: `movie`, `series`, `game`; statuses: `plan`, `watching`, `completed`, `dropped`. Input matching is case-insensitive; responses use lowercase values.
+- Timestamps are ISO 8601 UTC values with the `Z` suffix.
+- Pagination defaults to `offset=0` and `limit=20`; `offset` must be non-negative and the maximum limit is 100.
+- API errors use `{ "error": "…", "code": "…" }`.
+
+| HTTP status | Code | Description |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` | Invalid request data, including unsupported types, out-of-range values, or an empty search query |
+| `401` | `UNAUTHORIZED` / `INVALID_INIT_DATA` | Missing or invalid authentication credentials or Telegram `initData` |
+| `404` | `MEDIA_NOT_FOUND` | The requested item or its viewing-session parent was not found for the caller |
+| `409` | `MEDIA_DUPLICATE` | The caller already has the same external item |
+| `429` | `RATE_LIMITED` | A configured request limit was exceeded |
+| `500` | `INTERNAL_ERROR` | Unexpected server error; details are logged, not returned |
+| `503` | `EXTERNAL_API_UNAVAILABLE` | TMDB or RAWG is unavailable or its API key is not configured |
+| `503` | `BOT_AUTH_UNAVAILABLE` | Bot-server sign-in is disabled because its Development key is not configured |
+
+## Architecture
+
+```text
+MediaLibrary.Api/                 HTTP endpoints, authentication, and application services
+  Endpoints/                       Minimal API routes and HTTP response mapping
+  Services/                        Authentication, media CRUD, sessions, search and statistics
+MediaLibrary.Core/                 Domain entities and AppDbContext
+  Entities                         Media items, genres, tags, and viewing sessions
+MediaLibrary.Migrations.Sqlite/    EF Core migrations for Development
+MediaLibrary.Migrations.Postgres/  EF Core migrations for Production
+```
+
+- **Request pipeline:** Swagger, error handling, authentication, rate limiting, and authorization run before endpoint handlers.
+- **Dependency injection:** `MediaService` and `SearchAggregatorService` are scoped; TMDB and RAWG use DI-managed `HttpClient` instances.
+- **Migrations:** SQLite and PostgreSQL migrations live in separate assemblies. Startup applies the migrations for the active provider.
+- **Data model:** `MediaItem` and `Genre`/`Tag` use many-to-many relationships; `MediaItem` and `ViewingSession` use a one-to-many relationship with cascading delete.
+
+## Deployment status and Docker
+
+The production service has not been deployed, so there is no production Swagger URL to publish. Add a verified production URL here after deployment. The API's Dockerfile is in `api/`; it builds the .NET 9 application and listens on port `8080`.
+
+To build a container image from the API directory:
 
 ```bash
 cd api
 docker build -f Dockerfile -t medialibrary-api .
-docker run -p 8080:8080 \
+```
+
+For a future Production deployment, configure `ASPNETCORE_ENVIRONMENT=Production`, a PostgreSQL `ConnectionStrings__Default`, and secrets for `Jwt__Secret`, `Telegram__BotToken`, and `BotAuth__ApiKey` in the host's secret manager. The JWT secret and bot key must be distinct and each at least 32 UTF-8 bytes. Optional catalog keys are `Tmdb__ApiKey` and `Rawg__ApiKey`. The container applies the PostgreSQL migrations at startup, so a separate migration step is not required for the normal deployment flow.
+
+For a local container smoke test, substitute real values from a local secret store:
+
+```bash
+docker run --rm -p 8080:8080 \
   -e ASPNETCORE_ENVIRONMENT=Production \
   -e ConnectionStrings__Default="Host=<host>;Database=medialibrary;Username=<user>;Password=<password>" \
+  -e Jwt__Secret="$JWT_SECRET" \
+  -e Telegram__BotToken="$TELEGRAM_BOT_TOKEN" \
+  -e BotAuth__ApiKey="$BOT_AUTH_API_KEY" \
   medialibrary-api
 ```
 
-> Контекст збірки — каталог `api/` (Dockerfile збирає кілька проєктів: Api, Core, обидві збірки міграцій).
+The Docker build context must be the `api/` directory because the Dockerfile copies multiple API, Core, and migration projects. For a hosted web service, expose container port `8080` and provide the configuration values through the host's environment/secret manager. Do not commit production secrets or put them in tracked settings files.
 
-Для хостингу на Render або аналогічному PaaS: тип сервісу — Web Service (Docker), порт контейнера 8080, змінні середовища — `ASPNETCORE_ENVIRONMENT`, `ConnectionStrings__Default`, за потреби `Tmdb__ApiKey`/`Rawg__ApiKey`. Схему PostgreSQL контейнер застосовує сам на старті (`Database.Migrate()`, збірка `MediaLibrary.Migrations.Postgres`) — окремий крок розгортання БД не потрібен. За бажання схему можна оновити й вручну:
+## Related documentation
 
-```bash
-ASPNETCORE_ENVIRONMENT=Production \
-ConnectionStrings__Default="Host=<host>;Database=medialibrary;Username=<user>;Password=<password>" \
-dotnet ef database update --project MediaLibrary.Migrations.Postgres --startup-project MediaLibrary.Api
-```
+- [Repository overview and architecture](../README.md)
+- [API contract](../CONTRACT.md)
+- [Authentication and ownership](./AUTHENTICATION.md)

@@ -1,44 +1,43 @@
 # API Contract — Media Library
 
-**Версія:** 1.0  
-**Дата:** 2026-10-26  
-**Сторони:** Мариніч В. В. (C# API) ↔ Митровка А. Ю. (Python bot)
+**Version:** 1.0<br>
+**Date:** 2026-10-26<br>
+**Parties:** V. V. Marynich (C# API) ↔ A. Yu. Mytrovka (Python bot)
 
-> ⚠️ Будь-яка зміна цього файлу — **тільки за згодою обох сторін**.  
-> Зміна контракту = зміни в обох компонентах.
-
----
-
-## Загальні правила
-
-- **Base URL (dev):** `http://localhost:5000`
-- **Base URL (prod):** визначається після деплою
-- **Формат:** JSON (`Content-Type: application/json`)
-- **Кодування:** UTF-8
-- **Дати:** ISO 8601 UTC (`2026-10-15T10:30:00Z`)
-- **Пагінація:** `?offset=0&limit=20` (default `limit=20`, max `100`)
-- **Фільтри:** передаються як query-параметри
+> This is an English translation of the existing contract. Its API semantics are unchanged. Any future contract change requires approval from both parties and must be reflected in both components.
 
 ---
 
-## Типи даних
+## General rules
 
-| Тип | Формат | Приклад |
+- **Development base URL:** `http://localhost:5000`
+- **Production base URL:** to be assigned after deployment
+- **Format:** JSON (`Content-Type: application/json`)
+- **Encoding:** UTF-8
+- **Dates:** ISO 8601 UTC (for example, `2026-10-15T10:30:00Z`)
+- **Pagination:** `?offset=0&limit=20` (`limit` defaults to `20` and has a maximum of `100`)
+- **Filters:** supplied as query parameters
+
+---
+
+## Data types
+
+| Field | Format | Example |
 |---|---|---|
-| `id` | int | `42` |
-| `year` | int? (nullable) | `2010` або `null` |
-| `rating` | int? (1–10, nullable) | `9` або `null` |
+| `id` | integer | `42` |
+| `year` | nullable integer | `2010` or `null` |
+| `rating` | nullable integer, 1–10 | `9` or `null` |
 | `type` | enum string | `"movie"` \| `"series"` \| `"game"` |
 | `status` | enum string | `"plan"` \| `"watching"` \| `"completed"` \| `"dropped"` |
-| `posterUrl` | string? (URL) | `"https://image.tmdb.org/..."` |
-| `createdAt` | ISO 8601 | `"2026-10-15T10:30:00Z"` |
-| `externalSource` | string? | `"TMDB"` \| `"RAWG"` \| `"Manual"` |
+| `posterUrl` | nullable URL string | `"https://image.tmdb.org/..."` |
+| `createdAt` | ISO 8601 timestamp | `"2026-10-15T10:30:00Z"` |
+| `externalSource` | nullable string | `"TMDB"` \| `"RAWG"` \| `"Manual"` |
 
 ---
 
-## Моделі
+## Models
 
-### MediaItem (повна)
+### MediaItem
 
 ```json
 {
@@ -53,10 +52,10 @@
   "externalSource": "TMDB",
   "rating": 9,
   "status": "completed",
-  "notes": "Переглянув вдруге — шедевр",
+  "notes": "Watched it again — a masterpiece",
   "isManualEntry": false,
   "genres": ["Sci-Fi", "Thriller"],
-  "tags": ["улюблене", "нуolan"],
+  "tags": ["favorite", "nolan"],
   "createdAt": "2026-10-15T10:30:00Z",
   "updatedAt": "2026-10-15T11:00:00Z"
 }
@@ -87,25 +86,23 @@
 
 ---
 
-## Ендпоінти
+## Endpoints
 
-### 📺 Медіа
+### Media
 
----
+#### `GET /api/media` — list library items
 
-#### `GET /api/media` — список медіатеки
+All query parameters are optional:
 
-**Query-параметри (усі опційні):**
-
-| Параметр | Тип | Опис |
+| Parameter | Type | Description |
 |---|---|---|
 | `type` | string | `movie` \| `series` \| `game` |
 | `status` | string | `plan` \| `watching` \| `completed` \| `dropped` |
-| `genre` | string | Назва жанру |
-| `minRating` | int | Мінімальна оцінка |
-| `search` | string | Підрядок у назві |
-| `offset` | int | Зсув (default 0) |
-| `limit` | int | Розмір сторінки (default 20) |
+| `genre` | string | Genre name |
+| `minRating` | integer | Minimum rating |
+| `search` | string | Substring to match in a title |
+| `offset` | integer | Number of items to skip; defaults to `0` |
+| `limit` | integer | Page size; defaults to `20` |
 
 **Response 200:**
 
@@ -114,13 +111,11 @@
   "total": 87,
   "offset": 0,
   "limit": 20,
-  "items": [ /* масив MediaItem */ ]
+  "items": [ /* MediaItem array */ ]
 }
 ```
 
----
-
-#### `GET /api/media/{id}` — деталі
+#### `GET /api/media/{id}` — get item details
 
 **Response 200:** `MediaItem`
 
@@ -130,26 +125,24 @@
 { "error": "Media not found", "code": "MEDIA_NOT_FOUND" }
 ```
 
----
-
-#### `POST /api/media` — створити вручну
+#### `POST /api/media` — create a manual item
 
 **Request:**
 
 ```json
 {
-  "title": "Мій домашній фільм",
+  "title": "My home movie",
   "year": 2024,
   "type": "movie",
   "genres": ["Drama"],
-  "tags": ["власне"],
+  "tags": ["original"],
   "rating": 8,
   "status": "completed",
-  "notes": "Зняв з друзями"
+  "notes": "Filmed with friends"
 }
 ```
 
-**Response 201:** `MediaItem` (з новим `id`)
+**Response 201:** `MediaItem` with its new `id`
 
 **Response 400:**
 
@@ -157,56 +150,46 @@
 { "error": "Title is required", "code": "VALIDATION_ERROR" }
 ```
 
----
+#### `PUT /api/media/{id}` — update an item
 
-#### `PUT /api/media/{id}` — оновити
-
-**Request** (усі поля опційні):
+All request fields are optional:
 
 ```json
 {
-  "title": "Нова назва",
+  "title": "New title",
   "rating": 10,
   "status": "completed",
-  "notes": "Оновлена нотатка",
+  "notes": "Updated note",
   "genres": ["Sci-Fi"],
-  "tags": ["улюблене"]
+  "tags": ["favorite"]
 }
 ```
 
-**Response 200:** оновлений `MediaItem`
+**Response 200:** updated `MediaItem`
 
 **Response 404:** `MEDIA_NOT_FOUND`
 
----
+#### `DELETE /api/media/{id}` — delete an item
 
-#### `DELETE /api/media/{id}` — видалити
-
-**Response 204:** без тіла
+**Response 204:** no response body
 
 **Response 404:** `MEDIA_NOT_FOUND`
 
----
+### Search
 
-### 🔍 Пошук
+#### `GET /api/search` — search local data and catalogs
 
----
-
-#### `GET /api/search` — пошук (БД + TMDB + RAWG)
-
-**Query-параметри:**
-
-| Параметр | Тип | Обов'язковий | Опис |
+| Parameter | Type | Required | Description |
 |---|---|---|---|
-| `query` | string | ✅ | Пошуковий запит |
-| `type` | string | ❌ | `movie` \| `series` \| `game` (якщо не вказано — усі) |
+| `query` | string | yes | Search query |
+| `type` | string | no | `movie` \| `series` \| `game`; if omitted, search all types |
 
-**Логіка:**
+Search order and behavior:
 
-1. Спочатку шукає в **локальній БД** (`Title.Contains(query)`).
-2. Потім — у **TMDB** (якщо `type` = `movie`/`series`/не вказано).
-3. Потім — у **RAWG** (якщо `type` = `game`/не вказано).
-4. Об'єднує результати, видаляє дублікати за `externalId`.
+1. Search the **local database** (`Title.Contains(query)`).
+2. Search **TMDB** when `type` is `movie`, `series`, or is omitted.
+3. Search **RAWG** when `type` is `game` or is omitted.
+4. Combine the results and remove duplicate `externalId` values.
 
 **Response 200:**
 
@@ -226,15 +209,13 @@
 }
 ```
 
-**Response 200 (нічого не знайдено):**
+**Response 200 when no results are found:**
 
 ```json
 { "results": [] }
 ```
 
----
-
-#### `POST /api/search/import` — імпортувати знайдене
+#### `POST /api/search/import` — import a search result
 
 **Request:**
 
@@ -250,14 +231,14 @@
 }
 ```
 
-**Логіка:**
+Import behavior:
 
-1. Перевіряє, чи вже немає запису з таким `externalId` + `externalSource`.
-2. Якщо є — повертає **409 Conflict**.
-3. Якщо немає — створює `MediaItem` з `isManualEntry: false`.
-4. **Підтягує жанри** з TMDB/RAWG (окремий запит до джерела).
+1. Check whether an item with the same `externalId` and `externalSource` already exists.
+2. Return **409 Conflict** if it exists.
+3. Otherwise create a `MediaItem` with `isManualEntry: false`.
+4. Fetch genres from TMDB or RAWG using a separate catalog request.
 
-**Response 201:** створений `MediaItem`
+**Response 201:** created `MediaItem`
 
 **Response 409:**
 
@@ -265,11 +246,7 @@
 { "error": "Media already exists", "code": "MEDIA_DUPLICATE" }
 ```
 
----
-
-### 🎭 Довідники
-
----
+### Dictionaries
 
 #### `GET /api/genres`
 
@@ -284,8 +261,6 @@
 }
 ```
 
----
-
 #### `GET /api/tags`
 
 **Response 200:**
@@ -293,16 +268,12 @@
 ```json
 {
   "tags": [
-    { "id": 1, "name": "улюблене" }
+    { "id": 1, "name": "favorite" }
   ]
 }
 ```
 
----
-
-### 📊 Статистика
-
----
+### Statistics
 
 #### `GET /api/stats`
 
@@ -327,11 +298,7 @@
 }
 ```
 
----
-
-### 📖 Історія перегляду
-
----
+### Viewing history
 
 #### `GET /api/media/{id}/sessions`
 
@@ -344,14 +311,12 @@
       "id": 1,
       "mediaItemId": 42,
       "date": "2026-10-15T20:00:00Z",
-      "note": "Переглянув 1 сезон",
+      "note": "Watched season 1",
       "progress": "S1"
     }
   ]
 }
 ```
-
----
 
 #### `POST /api/media/{id}/sessions`
 
@@ -360,29 +325,29 @@
 ```json
 {
   "date": "2026-10-15T20:00:00Z",
-  "note": "Переглянув 2 сезон",
+  "note": "Watched season 2",
   "progress": "S2"
 }
 ```
 
-**Response 201:** створена сесія
+**Response 201:** created viewing session
 
 ---
 
-## Коди помилок
+## Error codes
 
-| Код | Значення | Коли |
+| HTTP status | Code | Description |
 |---|---|---|
-| 400 | `VALIDATION_ERROR` | Невалідні дані |
-| 404 | `MEDIA_NOT_FOUND` | Запис не знайдено |
-| 409 | `MEDIA_DUPLICATE` | Дублікат `externalId` |
-| 500 | `INTERNAL_ERROR` | Внутрішня помилка |
-| 503 | `EXTERNAL_API_UNAVAILABLE` | TMDB/RAWG не відповідає |
+| 400 | `VALIDATION_ERROR` | Invalid request data |
+| 404 | `MEDIA_NOT_FOUND` | Media item not found |
+| 409 | `MEDIA_DUPLICATE` | Duplicate `externalId` |
+| 500 | `INTERNAL_ERROR` | Internal error |
+| 503 | `EXTERNAL_API_UNAVAILABLE` | TMDB or RAWG is unavailable |
 
 ---
 
-## Зміни контракту
+## Contract history
 
-| Дата | Версія | Що змінилось |
+| Date | Version | Change |
 |---|---|---|
-| 2026-10-15 | 1.0 | Початкова версія |
+| 2026-10-15 | 1.0 | Initial version |

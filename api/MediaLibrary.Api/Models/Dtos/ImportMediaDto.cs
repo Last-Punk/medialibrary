@@ -3,10 +3,10 @@ using System.ComponentModel.DataAnnotations;
 namespace MediaLibrary.Api.Models.Dtos;
 
 /// <summary>
-/// Запит POST /api/search/import — імпорт знайденого в зовнішньому каталозі.
-/// Дублікат за ExternalId + ExternalSource — 409 MEDIA_DUPLICATE (див. MediaService).
-/// Genres опційні: якщо клієнт їх не передав, жанри підтягуватимуться з TMDB/RAWG
-/// на етапі інтеграції пошуку.
+/// Request body for importing an item from an external catalog with POST /api/search/import.
+/// A duplicate ExternalId + ExternalSource pair returns 409 MEDIA_DUPLICATE (see MediaService).
+/// Genres are optional. If omitted or empty, they are fetched from TMDB or RAWG
+/// during the catalog import flow. An unavailable catalog is reported as HTTP 503.
 /// </summary>
 public class ImportMediaDto
 {
@@ -23,7 +23,7 @@ public class ImportMediaDto
     [Range(1900, 2100)]
     public int? Year { get; set; }
 
-    // Парсинг рядка у MediaService зберігає контрактні movie/series/game.
+    // MediaService parses the string against the contract values: movie/series/game.
     public string Type { get; set; } = string.Empty;
     public string? PosterUrl { get; set; }
 

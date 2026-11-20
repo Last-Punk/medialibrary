@@ -3,8 +3,9 @@ using MediaLibrary.Api.Services;
 namespace MediaLibrary.Api.Middleware;
 
 /// <summary>
-/// Страхувальна сітка для винятків поза наявними try/catch ендпоінтів.
-/// Єдиний формат помилок { error, code } зберігається для всіх клієнтів API.
+/// Fallback handling for exceptions not handled by endpoint-level try/catch blocks.
+/// HTTP binding errors return 400, external catalog failures return 503, and all responses
+/// use the { error, code } response shape.
 /// </summary>
 public class ErrorHandlingMiddleware
 {
@@ -29,6 +30,24 @@ public class ErrorHandlingMiddleware
         {
             await WriteErrorAsync(context, StatusCodes.Status409Conflict, ex.Message, "MEDIA_DUPLICATE");
         }
+        catch (ExternalApiUnavailableException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "External catalog {Provider} is unavailable while processing {Method} {Path}",
+                ex.Provider,
+                context.Request.Method,
+                context.Request.Path);
+            await WriteErrorAsync(
+                context,
+                StatusCodes.Status503ServiceUnavailable,
+                "TMDB or RAWG is unavailable",
+                "EXTERNAL_API_UNAVAILABLE");
+        }
+        catch (BadHttpRequestException ex)
+        {
+            await WriteErrorAsync(context, StatusCodes.Status400BadRequest, ex.Message, "VALIDATION_ERROR");
+        }
         catch (ArgumentException ex)
         {
             await WriteErrorAsync(context, StatusCodes.Status400BadRequest, ex.Message, "VALIDATION_ERROR");
@@ -48,7 +67,7 @@ public class ErrorHandlingMiddleware
         string message,
         string code)
     {
-        // Після початку відповіді змінювати статус і тіло вже небезпечно.
+        // Once the response has started, its status and body must not be changed.
         if (context.Response.HasStarted)
             return;
 

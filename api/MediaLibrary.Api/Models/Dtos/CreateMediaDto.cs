@@ -3,8 +3,8 @@ using System.ComponentModel.DataAnnotations;
 namespace MediaLibrary.Api.Models.Dtos;
 
 /// <summary>
-/// Запит POST /api/media — створення запису вручну.
-/// Обов'язкові: Title, Type. Якщо OriginalTitle не вказана — береться Title.
+/// Request body for manually creating a media item with POST /api/media.
+/// Title and Type are required. If OriginalTitle is omitted, Title is used.
 /// </summary>
 public class CreateMediaDto
 {
@@ -18,7 +18,7 @@ public class CreateMediaDto
     [Range(1900, 2100)]
     public int? Year { get; set; }
 
-    // Type лишається рядком: контракт приймає movie/series/game, а не числовий enum.
+    // Keep Type as a string because the contract accepts movie/series/game, not numeric enum values.
     public string Type { get; set; } = string.Empty;
     public string? PosterUrl { get; set; }
 
