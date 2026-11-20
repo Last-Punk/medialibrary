@@ -1,0 +1,36 @@
+name: Bot CI Tests
+
+# Запускати автоматично при пуші та створенні PR у ці гілки
+on:
+  push:
+    branches: [ "main", "bot-dev" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Завантажуємо твій код на сервер GitHub
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. Встановлюємо Python
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    # 3. Встановлюємо бібліотеки з твого requirements.txt
+    - name: Install dependencies
+      run: |
+        cd bot
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # 4. Запускаємо наші автоматизовані тести
+    - name: Run tests with pytest
+      run: |
+        cd bot
+        pytest test_api.py -v
