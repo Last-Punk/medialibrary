@@ -1,8 +1,8 @@
 namespace MediaLibrary.Api.Models.Dtos;
 
 /// <summary>
-/// Один результат пошуку (модель SearchResult з контракту).
-/// Використовуватиметься ендпоінтом GET /api/search.
+/// A single search result (the contract SearchResult model).
+/// Returned by GET /api/search.
 /// </summary>
 public class SearchResultDto
 {

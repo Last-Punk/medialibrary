@@ -1,7 +1,7 @@
 namespace MediaLibrary.Api.Models.Dtos;
 
 /// <summary>
-/// Сесія перегляду у відповідях API. Date серіалізується як ISO 8601 UTC.
+/// Viewing session returned by the API. Date is serialized as ISO 8601 UTC.
 /// </summary>
 public class ViewingSessionDto
 {

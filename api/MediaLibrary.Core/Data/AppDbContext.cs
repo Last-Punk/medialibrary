@@ -1,12 +1,13 @@
 using Microsoft.EntityFrameworkCore;
-using MediaLibrary.Api.Models.Entities;
+using MediaLibrary.Core.Models.Entities;
 
-namespace MediaLibrary.Api.Data;
+namespace MediaLibrary.Core.Data;
 
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    public DbSet<User> Users => Set<User>();
     public DbSet<MediaItem> MediaItems => Set<MediaItem>();
     public DbSet<Genre> Genres => Set<Genre>();
     public DbSet<Tag> Tags => Set<Tag>();
@@ -15,6 +16,23 @@ public class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.TelegramUserId)
+            .IsUnique();
+
+        modelBuilder.Entity<MediaItem>()
+            .HasOne(m => m.Owner)
+            .WithMany(u => u.MediaItems)
+            .HasForeignKey(m => m.OwnerId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<MediaItem>()
+            .HasIndex(m => new { m.OwnerId, m.ExternalSource, m.ExternalId })
+            .IsUnique();
+
+        modelBuilder.Entity<MediaItem>()
+            .HasIndex(m => new { m.OwnerId, m.Status });
 
         modelBuilder.Entity<MediaItem>()
             .HasMany(m => m.Genres)

@@ -1,13 +1,14 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
-using MediaLibrary.Api.Data;
+using MediaLibrary.Core.Data;
 using MediaLibrary.Api.Models.Dtos;
-using MediaLibrary.Api.Models.Entities;
+using MediaLibrary.Api.Security;
+using MediaLibrary.Core.Models.Entities;
 
 namespace MediaLibrary.Api.Services;
 
 /// <summary>
-/// Дублікат за externalId + externalSource. Ендпоінти маплять у 409 MEDIA_DUPLICATE.
+/// Duplicate externalId + externalSource pair; endpoints map this to 409 MEDIA_DUPLICATE.
 /// </summary>
 public class DuplicateException : Exception
 {
@@ -15,21 +16,25 @@ public class DuplicateException : Exception
 }
 
 /// <summary>
-/// CRUD медіатеки + мапінг Entity → DTO.
-/// Невалідні вхідні дані — ArgumentException (ендпоінти маплять у 400 VALIDATION_ERROR).
+/// CRUD operations for the library and entity-to-DTO mapping.
+/// Invalid input throws ArgumentException, which endpoints map to 400 VALIDATION_ERROR.
 /// </summary>
 public class MediaService
 {
     private readonly AppDbContext _db;
+    private readonly ICurrentUser _currentUser;
 
-    public MediaService(AppDbContext db)
+    public MediaService(AppDbContext db, ICurrentUser currentUser)
     {
         _db = db;
+        _currentUser = currentUser;
     }
 
     public async Task<PagedResult<MediaResponseDto>> GetFilteredAsync(MediaFilter filter)
     {
+        var ownerId = _currentUser.UserId;
         var query = _db.MediaItems
+            .Where(m => m.OwnerId == ownerId)
             .Include(m => m.Genres)
             .Include(m => m.Tags)
             .AsQueryable();
@@ -65,10 +70,11 @@ public class MediaService
 
         var total = await query.CountAsync();
 
-        var offset = Math.Max(0, filter.Offset);
-        var limit = filter.Limit <= 0 ? 20 : Math.Min(filter.Limit, 100);
+        var offset = Math.Max(0, filter.Offset ?? 0);
+        var requestedLimit = filter.Limit ?? 20;
+        var limit = requestedLimit <= 0 ? 20 : Math.Min(requestedLimit, 100);
 
-        // Найновіші першими — так список очікує бот (/my).
+        // Sort newest first, matching the bot library list (/my).
         var items = await query
             .OrderByDescending(m => m.CreatedAt)
             .ThenByDescending(m => m.Id)
@@ -87,7 +93,9 @@ public class MediaService
 
     public async Task<MediaResponseDto?> GetByIdAsync(int id)
     {
+        var ownerId = _currentUser.UserId;
         var item = await _db.MediaItems
+            .Where(m => m.OwnerId == ownerId)
             .Include(m => m.Genres)
             .Include(m => m.Tags)
             .FirstOrDefaultAsync(m => m.Id == id);
@@ -110,6 +118,7 @@ public class MediaService
 
         var item = new MediaItem
         {
+            OwnerId = _currentUser.UserId,
             Title = title,
             OriginalTitle = TrimOrDefault(dto.OriginalTitle, title),
             Year = dto.Year,
@@ -136,9 +145,9 @@ public class MediaService
 
     public async Task<MediaResponseDto?> UpdateAsync(int id, UpdateMediaDto dto)
     {
-        ValidateDto(dto);
-
+        var ownerId = _currentUser.UserId;
         var item = await _db.MediaItems
+            .Where(m => m.OwnerId == ownerId)
             .Include(m => m.Genres)
             .Include(m => m.Tags)
             .FirstOrDefaultAsync(m => m.Id == id);
@@ -146,7 +155,9 @@ public class MediaService
         if (item is null)
             return null;
 
-        // null у DTO = поле не передане, лишаємо без змін.
+        ValidateDto(dto);
+
+        // A null DTO field means it was omitted and must remain unchanged.
         if (dto.Title is not null)
         {
             var title = dto.Title.Trim();
@@ -203,7 +214,9 @@ public class MediaService
 
     public async Task<bool> DeleteAsync(int id)
     {
-        var item = await _db.MediaItems.FindAsync(id);
+        var ownerId = _currentUser.UserId;
+        var item = await _db.MediaItems
+            .FirstOrDefaultAsync(media => media.Id == id && media.OwnerId == ownerId);
         if (item is null)
             return false;
 
@@ -213,7 +226,12 @@ public class MediaService
         return true;
     }
 
-    public async Task<MediaResponseDto> ImportFromExternalAsync(ImportMediaDto dto)
+    public Task<MediaResponseDto> ImportFromExternalAsync(ImportMediaDto dto) =>
+        ImportFromExternalAsync(dto, fetchGenresAsync: null);
+
+    public async Task<MediaResponseDto> ImportFromExternalAsync(
+        ImportMediaDto dto,
+        Func<ImportMediaDto, Task<List<string>>>? fetchGenresAsync)
     {
         ValidateDto(dto);
 
@@ -233,19 +251,24 @@ public class MediaService
         if (string.IsNullOrWhiteSpace(dto.Type))
             throw new ArgumentException("Type is required");
 
+        var ownerId = _currentUser.UserId;
         var sourceLower = externalSource.ToLower();
         var exists = await _db.MediaItems.AnyAsync(m =>
-            m.ExternalId == externalId
+            m.OwnerId == ownerId
+            && m.ExternalId == externalId
             && m.ExternalSource != null
             && m.ExternalSource.ToLower() == sourceLower);
 
         if (exists)
             throw new DuplicateException("Media already exists");
 
-        // Жанри з TMDB/RAWG окремим запитом підтягне етап інтеграції пошуку;
-        // тут приймаємо лише ті, що клієнт передав у запиті.
+        var genreNames = dto.Genres;
+        if ((genreNames is null || genreNames.Count == 0) && fetchGenresAsync is not null)
+            genreNames = await fetchGenresAsync(dto);
+
         var item = new MediaItem
         {
+            OwnerId = ownerId,
             Title = title,
             OriginalTitle = TrimOrDefault(dto.OriginalTitle, title),
             Year = dto.Year,
@@ -260,7 +283,7 @@ public class MediaService
             IsManualEntry = false,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = null,
-            Genres = await GetOrCreateGenresAsync(dto.Genres),
+            Genres = await GetOrCreateGenresAsync(genreNames),
             Tags = new List<Tag>()
         };
 
@@ -274,7 +297,7 @@ public class MediaService
     {
         var mediaExists = await _db.MediaItems
             .AsNoTracking()
-            .AnyAsync(item => item.Id == mediaId);
+            .AnyAsync(item => item.Id == mediaId && item.OwnerId == _currentUser.UserId);
 
         if (!mediaExists)
             return null;
@@ -293,7 +316,7 @@ public class MediaService
     {
         var mediaExists = await _db.MediaItems
             .AsNoTracking()
-            .AnyAsync(item => item.Id == mediaId);
+            .AnyAsync(item => item.Id == mediaId && item.OwnerId == _currentUser.UserId);
 
         if (!mediaExists)
             return null;
@@ -318,7 +341,7 @@ public class MediaService
         {
             Id = session.Id,
             MediaItemId = session.MediaItemId,
-            // SpecifyKind гарантує суфікс Z у JSON навіть після читання дати з SQLite.
+            // SpecifyKind ensures JSON uses the Z suffix after reading a date from SQLite.
             Date = AsUtc(session.Date),
             Note = session.Note,
             Progress = session.Progress
@@ -333,7 +356,7 @@ public class MediaService
             Title = item.Title,
             OriginalTitle = item.OriginalTitle,
             Year = item.Year,
-            // Enum → рядок у нижньому регістрі, як вимагає контракт ("movie", "completed").
+            // Serialize enums as lowercase strings as required by the contract ("movie", "completed").
             Type = item.Type.ToString().ToLowerInvariant(),
             PosterUrl = item.PosterUrl,
             Overview = item.Overview,
@@ -345,7 +368,7 @@ public class MediaService
             IsManualEntry = item.IsManualEntry,
             Genres = item.Genres.Select(g => g.Name).OrderBy(name => name).ToList(),
             Tags = item.Tags.Select(t => t.Name).OrderBy(name => name).ToList(),
-            // У БД дати зберігаються в UTC. SpecifyKind — щоб JSON мав суфікс Z (ISO 8601 UTC з контракту).
+            // Dates are stored in UTC. SpecifyKind ensures the JSON value has the contract ISO 8601 UTC Z suffix.
             CreatedAt = AsUtc(item.CreatedAt),
             UpdatedAt = item.UpdatedAt.HasValue ? AsUtc(item.UpdatedAt.Value) : null
         };
@@ -358,8 +381,8 @@ public class MediaService
         if (normalized.Count == 0)
             return result;
 
-        // Довідник жанрів невеликий: порівнюємо в пам'яті без урахування регістру,
-        // щоб коректно працювали й не-ASCII назви (SQL lower() у SQLite — лише ASCII).
+        // The genre dictionary is small, so compare names in memory without case sensitivity,
+        // which also handles non-ASCII names (SQLite SQL lower() only handles ASCII).
         var existing = await _db.Genres.ToListAsync();
 
         foreach (var name in normalized)
@@ -445,7 +468,7 @@ public class MediaService
 
     private static void ValidateDto<T>(T dto) where T : class
     {
-        // Minimal APIs у .NET 9 самі не виконують DataAnnotations, тому запускаємо їх явно.
+        // .NET 9 Minimal APIs do not run DataAnnotations automatically, so validate them explicitly.
         var results = new List<ValidationResult>();
         var context = new ValidationContext(dto);
 

@@ -1,8 +1,8 @@
 namespace MediaLibrary.Api.Models.Dtos;
 
 /// <summary>
-/// Повне медіа у відповідях API (модель MediaItem з контракту).
-/// Type/Status — рядки у нижньому регістрі ("movie", "completed", ...), як вимагає контракт.
+/// Full media item returned by the API (the contract MediaItem model).
+/// Type and Status are lowercase strings ("movie", "completed", ...) as required by the contract.
 /// </summary>
 public class MediaResponseDto
 {

@@ -3,8 +3,8 @@ using System.ComponentModel.DataAnnotations;
 namespace MediaLibrary.Api.Models.Dtos;
 
 /// <summary>
-/// Запит PUT /api/media/{id} — усі поля опційні.
-/// null (поле не передане) = залишити без змін; порожній список Genres/Tags = очистити.
+/// Request body for PUT /api/media/{id}; all fields are optional.
+/// A null or omitted field is unchanged; an empty Genres or Tags list clears that collection.
 /// </summary>
 public class UpdateMediaDto
 {

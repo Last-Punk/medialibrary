@@ -1,7 +1,7 @@
 namespace MediaLibrary.Api.Models.Dtos;
 
 /// <summary>
-/// Запит на створення сесії перегляду. Якщо Date не передано, сервер бере поточний UTC.
+/// Request body for creating a viewing session. If Date is omitted, the server uses the current UTC time.
 /// </summary>
 public class CreateViewingSessionDto
 {

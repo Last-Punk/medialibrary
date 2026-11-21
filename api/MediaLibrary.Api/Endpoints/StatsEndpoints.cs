@@ -1,26 +1,32 @@
 using Microsoft.EntityFrameworkCore;
-using MediaLibrary.Api.Data;
+using MediaLibrary.Api.Security;
+using MediaLibrary.Core.Data;
 
 namespace MediaLibrary.Api.Endpoints;
 
 /// <summary>
-/// Агрегована статистика медіатеки за CONTRACT.md.
-/// Групування виконується в SQL, а enum перетворюється на рядок уже в пам'яті.
+/// Aggregated library statistics as defined by CONTRACT.md.
+/// Grouping is performed in SQL; enums are converted to strings in memory.
 /// </summary>
 public static class StatsEndpoints
 {
     public static IEndpointRouteBuilder MapStatsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/stats").WithTags("Stats");
+        var group = app.MapGroup("/api/stats")
+            .WithTags("Stats")
+            .RequireAuthorization();
 
         group.MapGet("", GetStats);
 
         return app;
     }
 
-    private static async Task<IResult> GetStats(AppDbContext db)
+    private static async Task<IResult> GetStats(AppDbContext db, ICurrentUser currentUser)
     {
-        var media = db.MediaItems.AsNoTracking();
+        var ownerId = currentUser.UserId;
+        var media = db.MediaItems
+            .AsNoTracking()
+            .Where(item => item.OwnerId == ownerId);
 
         var total = await media.CountAsync();
 
@@ -34,7 +40,7 @@ public static class StatsEndpoints
             .Select(group => new { Type = group.Key, Count = group.Count() })
             .ToListAsync();
 
-        // EF не транслює enum.ToString(), тому контрактний нижній регістр робимо після SQL.
+        // EF does not translate enum.ToString(), so apply the contract lowercase format after the SQL query.
         var byStatus = statusRows.Select(row => new
         {
             status = row.Status.ToString().ToLowerInvariant(),
@@ -52,15 +58,16 @@ public static class StatsEndpoints
             .Select(item => (double?)item.Rating)
             .AverageAsync();
 
-        // Порожня вибірка оцінок — це 0 за контрактом, а не null.
+        // The contract represents an empty rating set as 0 rather than null.
         var avgRating = average.HasValue ? Math.Round(average.Value, 1) : 0;
 
         var topGenres = await db.Genres
             .AsNoTracking()
+            .Where(genre => genre.MediaItems.Any(item => item.OwnerId == ownerId))
             .Select(genre => new
             {
                 name = genre.Name,
-                count = genre.MediaItems.Count()
+                count = genre.MediaItems.Count(item => item.OwnerId == ownerId)
             })
             .OrderByDescending(genre => genre.count)
             .ThenBy(genre => genre.name)
