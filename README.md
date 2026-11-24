@@ -2,7 +2,7 @@
 
 A Telegram-connected personal library for tracking movies, TV series, and games. The repository contains a Telegram bot and a REST API that stores user-owned media, aggregates search results from external catalogs, and exposes statistics and viewing sessions.
 
-> **Deployment status:** A production deployment has not been configured yet. The production Swagger UI URL will be added here after deployment.
+> **Deployment status:** Production deployment is live.
 
 ## Project components
 
@@ -107,7 +107,9 @@ sequenceDiagram
 - [API overview and local development](./api/README.md)
 - [Authentication and ownership](./api/AUTHENTICATION.md)
 - [API contract](./CONTRACT.md)
-- **Production Swagger UI:** Not deployed yet.
+- **Production API:** [https://medialibrary-hkdf.onrender.com/](https://medialibrary-hkdf.onrender.com/)
+- **Production Swagger UI:** [https://medialibrary-hkdf.onrender.com/swagger/index.html](https://medialibrary-hkdf.onrender.com/swagger/index.html)
+- **Telegram bot:** [@DyvysHray_bot](https://t.me/DyvysHray_bot)
 - **Local Swagger UI:** `http://localhost:5021/swagger` when the API is running with the Development HTTP profile.
 
 ## Run and test the API locally
@@ -142,5 +144,5 @@ The API listens on `http://localhost:5021`. The Development profile uses SQLite.
 
 ## Contributors
 
-- **V. V. Marynich** — C# backend and project lead
-- **A. Yu. Mytrovka** — Python Telegram bot
+- **Vitalii Marynych** — C# backend and project lead
+- **Andrii Mytrovka** — Python Telegram bot
